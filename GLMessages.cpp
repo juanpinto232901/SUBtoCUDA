@@ -16,6 +16,7 @@ GLMessages::GLMessages()
     , averageAnimate1(0.0)
     , averageAnimate2(0.0)
     , ticdraw(0)
+	, ticdraw2(0)
 	, iSizePCL1comp(0)
 	, iSizePCL2comp(0)
 	, iSizePCL3comp(0)
@@ -39,11 +40,22 @@ GLMessages::GLMessages()
 //    commonParams = &CommonStruct::getInstance();
 
     qDebug("GLMessage Constructor");
+	iSizePCL1comp = 0;
+	iSizePCL2comp = 0;
+	iSizePCL3comp = 0;
+	iReadedPCL1comp = 0;
+	iReadedPCL2comp = 0;
+	iReadedPCL3comp = 0;
+	iUncomp1 = 0;
+	iUncomp2 = 0;
+	iUncomp3 = 0;
 
 }
 
 void GLMessages::drawGLText(QPainter *painter, float fps, float fpscap, int iNumPolygons, int iNumCapFrame)
 {
+	QMutex doStopMutex01;
+
     if (fps > 0.0f) {
         uint colorTextAverage = getColorTextGL();
 
@@ -53,6 +65,10 @@ void GLMessages::drawGLText(QPainter *painter, float fps, float fpscap, int iNum
 		QString sLnum = QString(sNum.left(3));
 		QString oneStr01 = QString("%3.%2.%1   %4").arg(sRnum).arg(sMnum).arg(sLnum).arg(QString::number(iNumPolygons));
 		QString str = oneStr01 + QLatin1String(" points, ");
+
+		iSizePCL1comp = 0;
+		iSizePCL2comp = 0;
+		iSizePCL3comp = 0;
 
 //		qDebug() << str;
         averageFPS1 += 1.0 / (tPaint.getElapsedTimeInMicroSec() / 1000000.0);
@@ -64,30 +80,32 @@ void GLMessages::drawGLText(QPainter *painter, float fps, float fpscap, int iNum
         //averageAnimate1 += tAnimate.getElapsedTimeInMicroSec();
         //averageCapture1 += tCapture.getElapsedTimeInMicroSec();
 		averagePaint2 = averagePaint1;
+//		qDebug() << QString("GLMessages::drawGLText    iSizePCL1comp=%1 iAverageSizePCL1comp=%2 ticdraw2=%3 20 ").arg(iSizePCL1comp).arg(iAverageSizePCL1comp).arg(ticdraw2);
 
 
-		qDebug() << QString("GLMessages::drawGLText    iSizePCL1comp=%1 iAverageSizePCL1comp=%2 ").arg(iSizePCL1comp).arg(iAverageSizePCL1comp);
-        if(ticdraw == AVERAGE){
-            averageFPS2 = averageFPS1 / (float)AVERAGE;
-            averagePaint2 = averagePaint1 / (float)AVERAGE;
-            averageCPU2 = averageCPU1 / (float)AVERAGE;
-            averageCUDA2 = averageCUDA1 / (float)AVERAGE;
-            averageOpenCL2 = averageOpenCL1 / (float)AVERAGE;
-            //averageFlush2 = averageFlush1 / (float)AVERAGE;
-            //averageAnimate2 = averageAnimate1 / (float)AVERAGE;
-            //averageCapture2 = averageCapture1 / (float)AVERAGE;
-
-			iAverageSizePCL1comp = iSizePCL1comp / AVERAGE;
-			iAverageSizePCL2comp = iSizePCL2comp / AVERAGE;
-			iAverageSizePCL3comp = iSizePCL3comp / AVERAGE;
-			iAverageReadedPCL1comp = iReadedPCL1comp / AVERAGE;
-			iAverageReadedPCL2comp = iReadedPCL2comp / AVERAGE;
-			iAverageReadedPCL3comp = iReadedPCL3comp / AVERAGE;
-			iAverageUncomp1 = iUncomp1 / AVERAGE;
-			iAverageUncomp2 = iUncomp2 / AVERAGE;
-			iAverageUncomp3 = iUncomp3 / AVERAGE;
-
-        }
+		if (ticdraw == AVERAGE) {
+			averageFPS2 = averageFPS1 / (float)AVERAGE;
+			averagePaint2 = averagePaint1 / (float)AVERAGE;
+			averageCPU2 = averageCPU1 / (float)AVERAGE;
+			averageCUDA2 = averageCUDA1 / (float)AVERAGE;
+			averageOpenCL2 = averageOpenCL1 / (float)AVERAGE;
+			//averageFlush2 = averageFlush1 / (float)AVERAGE;
+			//averageAnimate2 = averageAnimate1 / (float)AVERAGE;
+			//averageCapture2 = averageCapture1 / (float)AVERAGE;
+		}
+		if (ticdraw2 >= AVERAGE2) {
+			iAverageSizePCL1comp = iSizePCL1comp / AVERAGE2;
+//			qDebug() << QString("GLMessages::drawGLText    iAverageSizePCL1comp=%1 ").arg(iAverageSizePCL1comp);
+			iAverageSizePCL2comp = iSizePCL2comp / AVERAGE2;
+			iAverageSizePCL3comp = iSizePCL3comp / AVERAGE2;
+			iAverageReadedPCL1comp = iReadedPCL1comp / AVERAGE2;
+			iAverageReadedPCL2comp = iReadedPCL2comp / AVERAGE2;
+			iAverageReadedPCL3comp = iReadedPCL3comp / AVERAGE2;
+			iAverageUncomp1 = iUncomp1 / AVERAGE2;
+			iAverageUncomp2 = iUncomp2 / AVERAGE2;
+			iAverageUncomp3 = iUncomp3 / AVERAGE2;
+//			qDebug() << QString("GLMessages::drawGLText  ***  iSizePCL1comp=%1 iAverageSizePCL1comp=%2 ticdraw2=%3 20 ").arg(iSizePCL1comp).arg(iAverageSizePCL1comp).arg(ticdraw2);
+		}
 //        str += " " + QString::number(fpscap) + QLatin1String("  fps capture frame");
         str += "\n" + QString::number(fps) + QLatin1String("  fps frame rate");
         str += "\n" + QString::number(averageFPS2) + QLatin1String("  fps paint");
@@ -96,9 +114,12 @@ void GLMessages::drawGLText(QPainter *painter, float fps, float fpscap, int iNum
         str += "\n" + QString::number(averageCUDA2) + QLatin1String(" us tCUDA");
         str += "\n" + QString::number(averageOpenCL2) + QLatin1String(" us VBO process");
 		str += "\n";
-		str += "\n" + QString::number(iAverageSizePCL1comp) + QLatin1String("   ") + QString::number(iAverageReadedPCL1comp) + QLatin1String("   ") + QString::number(iAverageUncomp1) + QLatin1String("   Avatar 1");
-		str += "\n" + QString::number(iAverageSizePCL2comp) + QLatin1String("   ") + QString::number(iAverageReadedPCL2comp) + QLatin1String("   ") + QString::number(iAverageUncomp2) + QLatin1String("   Avatar 2");
-		str += "\n" + QString::number(iAverageSizePCL3comp) + QLatin1String("   ") + QString::number(iAverageReadedPCL3comp) + QLatin1String("   ") + QString::number(iAverageUncomp3) + QLatin1String("   Avatar 3");
+		doStopMutex01.lock();
+		str += "\n" + QString::number(iAverageSizePCL1comp) + QLatin1String("   ") + QString::number(iAverageReadedPCL1comp) + QLatin1String("   ") + QString::number(iAverageUncomp1) + QString("   redandblack");
+		str += "\n" + QString::number(iAverageSizePCL2comp) + QLatin1String("   ") + QString::number(iAverageReadedPCL2comp) + QLatin1String("   ") + QString::number(iAverageUncomp2) + QString("   longdress");
+		str += "\n" + QString::number(iAverageSizePCL3comp) + QLatin1String("   ") + QString::number(iAverageReadedPCL3comp) + QLatin1String("   ") + QString::number(iAverageUncomp3) + QString("   loot");
+		doStopMutex01.unlock();
+
 		//str += "\n" + QString::number(averageFlush2) + QLatin1String(" us tFlush");
         //str += "\n" + QString::number(averageAnimate2) + QLatin1String(" us tAnimate");
         //str += "\n" + QString::number(averageCapture2) + QLatin1String(" us tCapture");
@@ -143,27 +164,30 @@ void GLMessages::drawGLText(QPainter *painter, float fps, float fpscap, int iNum
     }
 //    if(iNumCapFrame > 0)qDebug() << QString("iNumCapFrame=%1 iNumFrame=%2").arg(iNumCapFrame).arg(iNumFrame);
     ticdraw++;
-    if(ticdraw > AVERAGE){
-        ticdraw = 1;
-        averageFPS1 = 0.0;
-        averagePaint1 = 0.0;
-        averageCPU1 = 0.0;
-        averageCUDA1 = 0.0;
-        averageOpenCL1 = 0.0;
-        //averageFlush1 = 0.0;
-        //averageAnimate1 = 0.0;
-        //averageCapture1 = 0.0;
-
-		iAverageSizePCL1comp = 0;
-		iAverageSizePCL2comp = 0;
-		iAverageSizePCL3comp = 0;
-		iAverageReadedPCL1comp = 0;
-		iAverageReadedPCL2comp = 0;
-		iAverageReadedPCL3comp = 0;
-		iAverageUncomp1 = 0;
-		iAverageUncomp2 = 0;
-		iAverageUncomp3 = 0;
-
+//	qDebug() << QString("ticdraw=%1  ticdraw2=%2 ").arg(ticdraw).arg(ticdraw2);
+	if (ticdraw > AVERAGE) {
+		ticdraw = 1;
+		averageFPS1 = 0.0;
+		averagePaint1 = 0.0;
+		averageCPU1 = 0.0;
+		averageCUDA1 = 0.0;
+		averageOpenCL1 = 0.0;
+		//averageFlush1 = 0.0;
+		//averageAnimate1 = 0.0;
+		//averageCapture1 = 0.0;
+	}
+	if (ticdraw2 >= AVERAGE2) {
+		ticdraw2 = 0;
+		iSizePCL1comp = 0;
+		iSizePCL2comp = 0;
+		iSizePCL3comp = 0;
+		iReadedPCL1comp = 0;
+		iReadedPCL2comp = 0;
+		iReadedPCL3comp = 0;
+		iUncomp1 = 0;
+		iUncomp2 = 0;
+		iUncomp3 = 0;
     }
+	ticdraw2++;
 
 }

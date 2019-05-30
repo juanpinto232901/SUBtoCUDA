@@ -14,6 +14,7 @@
 #include "GLVertexBuffers.h"
 #include "GLMessages.h"
 //#include "framerate.h"
+#include "CapturSUB.h"
 
 #define AVERAGE 100
 #define BUFFERMEM 100 * 1024
@@ -37,6 +38,8 @@ public:
     ~SafeMain();
 
     int safeMain();
+	void safeMainV31();// int argc, char const* argv[]);
+
     void setSUBThreadsNumber(int iVal) { iSUBThreadsNumber = iVal; }
     int getSUBThreadsNumber() { return iSUBThreadsNumber; }
     void stopSUBThreads();
@@ -72,6 +75,8 @@ public:
     bool getAllocated() { return allocated; }
     bool getPLYloaded() { return plyloaded; }
 
+
+	CapturSUB* mySUB;
 
 
 public slots:
@@ -163,6 +168,9 @@ private:
 	FrameInfo* timestampInfo[NUMPCL];
 	cwipc_point* mypcl[NUMPCL];
 	int iNumPoints[NUMPCL];
+	int iNumPointsPrev[NUMPCL][10];
+	int iPosPrev;
+
 	QMutex doStopM02;
 
 	GLMessages theGLMessage;

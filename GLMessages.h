@@ -4,6 +4,7 @@
 #include <QtWidgets/QWidget>
 
 #include <QtDebug>
+#include <QMutex>
 //#include "../BezierDefines.h"
 #include <QtCore/qtimer.h>
 #include <QtCore/qdatetime.h>
@@ -13,6 +14,7 @@
 //#include "../DataStructs/CommonStruct.h"
 
 #define AVERAGE 100
+#define AVERAGE2 20
 
 class GLMessages : public QWidget
 {
@@ -54,15 +56,18 @@ public:
 	//void setMsg02(QString msg1);
 	//void setMsg03(QString msg1);
 
-	void setSizePCL1comp(int iVal) { iSizePCL1comp = iVal; }
-	void setSizePCL2comp(int iVal) { iSizePCL2comp = iVal; }
-	void setSizePCL3comp(int iVal) { iSizePCL3comp = iVal; }
-	void setReadedPCL1comp(int iVal) { iReadedPCL1comp = iVal; }
-	void setReadedPCL2comp(int iVal) { iReadedPCL2comp = iVal; }
-	void setReadedPCL3comp(int iVal) { iReadedPCL3comp = iVal; }
-	void setUncomp1(int iVal) { iUncomp1 = iVal; }
-	void setUncomp2(int iVal) { iUncomp2 = iVal; }
-	void setUncomp3(int iVal) { iUncomp3 = iVal; }
+	void setSizePCL1comp(int iVal) { iSizePCL1comp += iVal; }
+	void setSizePCL2comp(int iVal) { iSizePCL2comp += iVal; }
+	void setSizePCL3comp(int iVal) { iSizePCL3comp += iVal; }
+	void setReadedPCL1comp(int iVal) { iReadedPCL1comp += iVal; }
+	void setReadedPCL2comp(int iVal) { iReadedPCL2comp += iVal; }
+	void setReadedPCL3comp(int iVal) { iReadedPCL3comp += iVal; }
+	void setUncomp1(int iVal) { iUncomp1 += iVal; }
+	void setUncomp2(int iVal) { iUncomp2 += iVal; }
+	void setUncomp3(int iVal) { iUncomp3 += iVal; }
+	void setAvatar1Name(QString sVal) { /*Avatar1Name = QString(sVal);*/ }
+	void setAvatar2Name(QString sVal) { /*Avatar2Name = QString(sVal);*/ }
+	void setAvatar3Name(QString sVal) { /*Avatar3Name = QString(sVal);*/ }
 
 
 protected:
@@ -91,6 +96,7 @@ protected:
     float averageCapture2;
 
     uint ticdraw;
+	uint ticdraw2;
 
 	uint colorTextAverage;                      /// OpenGL Text color for messages
 
@@ -114,7 +120,9 @@ protected:
 	int iAverageUncomp2;
 	int iAverageUncomp3;
 
-
+	QString Avatar1Name;
+	QString Avatar2Name;
+	QString Avatar3Name;
 };
 
 #endif // GLMESSAGES_H

@@ -186,6 +186,7 @@
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="CapturSUB.cpp" />
     <ClCompile Include="CapturSUBThread.cpp" />
     <ClCompile Include="GLMessages.cpp" />
     <ClCompile Include="GLVertexBuffers.cpp" />
@@ -195,6 +196,7 @@
     <ClCompile Include="safeMain.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="CapturSUB.h" />
     <ClInclude Include="CapturSUBThread.h" />
     <ClInclude Include="GLMessages.h" />
     <ClInclude Include="GLVertexBuffers.h" />

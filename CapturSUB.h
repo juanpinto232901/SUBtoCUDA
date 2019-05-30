@@ -1,5 +1,5 @@
-#ifndef CAPTURSUBTHREAD_H
-#define CAPTURSUBTHREAD_H
+#ifndef CAPTURSUB_H
+#define CAPTURSUB_H
 
 
 #include "signals_unity_bridge.h"
@@ -12,20 +12,20 @@
 #include "TimerHQ.h"
 #include "GLMessages.h"
 
-#define DELAY 10
+#define DELAY 1
 
 
 class VRtogetherWidget;
 
-class CapturSUBThread : public QThread
+class CapturSUB : public QThread
 {
 
 public:
 	GLMessages* theGLMessageTh;
 
 
-	CapturSUBThread();
-	void run();
+        CapturSUB();
+        void read();
 
     void setName(QString tTxt){ txt1 = QString(tTxt); }
     QString getName() { return txt1; }
@@ -94,4 +94,4 @@ protected:
 
 };
 
-#endif // CAPTURSUBTHREAD_H
+#endif // CAPTURSUB_H

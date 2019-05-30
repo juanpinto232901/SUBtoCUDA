@@ -17,6 +17,7 @@
 #include <qtimer.h>
 
 #include "CapturSUBThread.h"
+#include "CapturSUB.h"
 
 
 #undef main
@@ -57,6 +58,7 @@ SafeMain::SafeMain(QWidget *parent)
 	, bSeeColor(true)
 	, yElev(0)
 	, bOnlyOne(false)
+	, iPosPrev(0)
 {
     qDebug() << QString("SafeMain  constructor .......... ");
 	setAutoFillBackground(false);
@@ -76,6 +78,7 @@ SafeMain::SafeMain(QWidget *parent)
 	iAvatar = 0xffffffff;
 	yElev = -200;
 	bOnlyOne = false;
+	iPosPrev = 0;
 
 
     iNumProcessorsQTH = QThread::idealThreadCount();
@@ -85,7 +88,8 @@ SafeMain::SafeMain(QWidget *parent)
 	iThreadsNumber = NUMPCL;
 
     setUseSUBThreads(true);
-//    safeMain();
+//    safeMainV31();
+//	mySUB = new CapturSUB;
 
 //#ifdef CONGL
     QTimer *timer = new QTimer(this);
@@ -98,6 +102,88 @@ SafeMain::~SafeMain()
 {
 
 }
+
+void* safeImport(void* lib, const char* name)
+{
+	auto r = SDL_LoadFunction(lib, name);
+
+	if (!r)
+		throw runtime_error("Symbol not found: " + string(name));
+
+	return r;
+}
+
+//#define IMPORT(name) ((decltype(name)*)safeImport(lib, # name))
+
+void SafeMain::safeMainV31()//int argc, char const* argv[])
+{
+	//if (argc != 3)
+	//	throw runtime_error("Usage: app.exe <signals-unity-bridge.dll> [media url]");
+
+	//const string libraryPath = argv[1];
+	//const string mediaUrl = argv[2];
+	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO))
+		throw runtime_error(string("Unable to initialize SDL: ") + SDL_GetError());
+
+	const string libraryPath = "signals-unity-bridge.dll";
+	const string mediaUrl = "http://vrt-pcl2dash.viaccess-orca.com/loot/vrtogether.mpd";
+
+	qDebug() << QString("libraryPath=%1  mediaUrl=%2").arg(libraryPath.c_str()).arg(mediaUrl.c_str());
+
+
+	auto lib = SDL_LoadObject(libraryPath.c_str());
+
+	if (!lib)
+		throw runtime_error("Can't load '" + libraryPath + "': " + SDL_GetError());
+
+	auto func_sub_create = IMPORT(sub_create);
+	auto func_sub_play = IMPORT(sub_play);
+	auto func_sub_destroy = IMPORT(sub_destroy);
+	auto func_sub_grab_frame = IMPORT(sub_grab_frame);
+	auto func_sub_get_stream_count = IMPORT(sub_get_stream_count);
+
+	auto handle = func_sub_create("MyMediaPipeline");
+
+	func_sub_play(handle, mediaUrl.c_str());
+
+	if (func_sub_get_stream_count(handle) == 0)
+		throw runtime_error("No streams found");
+
+	vector<uint8_t> buffer;
+
+	for (int i = 0; i < 100000; ++i)
+	{
+		FrameInfo info{};
+		buffer.resize(1024 * 1024 * 10);
+		auto size = func_sub_grab_frame(handle, 0, buffer.data(), buffer.size(), &info);
+		buffer.resize(size);
+
+		if (size == 0)
+			SDL_Delay(100);
+		else
+		{
+			printf("Frame: % 5d bytes, t=%.3f [", (int)size, info.timestamp / 1000.0);
+
+			for (int k = 0; k < (int)buffer.size(); ++k)
+			{
+				if (k == 8)
+				{
+					printf(" ...");
+					break;
+				}
+
+				printf(" %.2X", buffer[k]);
+			}
+
+			printf(" ]\n");
+		}
+	}
+
+	func_sub_destroy(handle);
+	SDL_UnloadObject(lib);
+}
+
+
 
 int SafeMain::safeMain()
 {
@@ -612,7 +698,8 @@ void SafeMain::processGeom(float despX, float despY, float despZ)
 		iTest = iAvatar & 2048;
 		if (iTest && i == 11)bDraw = true;
 
-		//		qDebug() << QString("iAvatar=%1 i=%2 bDraw=%3 ").arg(QString::number(iAvatar, 16)).arg(i).arg(bDraw);
+//		qDebug() << QString("SafeMain::processGeom   th=%2 bDraw=%3 ").arg(i).arg(bDraw);
+		//				qDebug() << QString("iAvatar=%1 th=%2 bDraw=%3 ").arg(QString::number(iAvatar, 16)).arg(i).arg(bDraw);
 		if (bDraw) {
 			//ViewerVertexBuffer1->clearVertexBufferMem(64536, 1);
 			//ViewerVertexBuffer1->clearColorBufferMem(64536, 1);
@@ -620,8 +707,9 @@ void SafeMain::processGeom(float despX, float despY, float despZ)
 			mypcl[i] = thNode->getPCL();
 			timestampInfo[i] = thNode->getInfo();
 			iNumPoints[i] = thNode->getNumPoints();
-			qDebug() << QString("th=%1  iNumPoints=%2 ").arg(i).arg(iNumPoints[i]);
 			num_elems = iNumPoints[i];
+			iNumPointsPrev[i][iPosPrev] = iNumPoints[i];
+//			qDebug() << QString("th=%1  iNumPoints=%2   iAvatar=%3 ").arg(i).arg(iNumPoints[i]).arg(QString::number( iAvatar, 16));
 			if (iNumPoints[i] > 0) {
 				int iNumAvatar = 5;
 				if (bOnlyOne)bDraw = false;
@@ -629,6 +717,7 @@ void SafeMain::processGeom(float despX, float despY, float despZ)
 				if (iAvatar == 2 && bOnlyOne) { bDraw = true; iNumAvatar = 1; }
 				if (iAvatar == 4 && bOnlyOne) { bDraw = true; iNumAvatar = 1; }
 				//if (bOnlyOne) iNumAvatar = 1;
+			qDebug() << QString("SafeMain::processGeom   th=%1  iNumPoints=%2   iNumAvatar=%3 ").arg(i).arg(iNumPoints[i]).arg(iNumAvatar);
 				for (int j1 = 0; j1 < iNumAvatar; j1++) {
 					if (bDraw) {
 
@@ -864,7 +953,8 @@ void SafeMain::processGeom(float despX, float despY, float despZ)
 				}
 			}
 
-
+			if (iPosPrev >= 10)iPosPrev = -1;
+			iPosPrev++;
 
 		}
 		bDraw = false;
@@ -2172,6 +2262,7 @@ void SafeMain::paintEvent(QPaintEvent *event)
 	int iNumCapFrame = 0;
 	qreal fps = 1.0 / theGLMessage.getTimeSegCPU();
 	//	qDebug() << QString("fps=%1").arg(fps);
+//	setVars1(100, 1000, 99000);
 	theGLMessage.drawGLText(&painter, fps, fpscap, iTotalPoints, iNumCapFrame);
 	painter.end();
 }
