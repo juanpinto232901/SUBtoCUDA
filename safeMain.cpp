@@ -59,6 +59,11 @@ SafeMain::SafeMain(QWidget *parent)
 	, yElev(0)
 	, bOnlyOne(false)
 	, iPosPrev(0)
+#ifndef THREADSUB
+	, mySUB01(0)
+	, mySUB02(0)
+	, mySUB03(0)
+#endif
 {
     qDebug() << QString("SafeMain  constructor .......... ");
 	setAutoFillBackground(false);
@@ -72,11 +77,17 @@ SafeMain::SafeMain(QWidget *parent)
         num_elemsTh[i] = 0;
     }
 
-	//m_fDistEye = 150;
+#ifndef THREADSUB
+	m_fDistEye = -160;
+	yElev = 100;
+#else
+//	m_fDistEye = 150;
 	m_fDistEye = 700.0;
 //	m_fDistEye = 3150.0;
-	iAvatar = 0xffffffff;
 	yElev = -200;
+#endif
+
+	iAvatar = 0xffffffff;
 	bOnlyOne = false;
 	iPosPrev = 0;
 
@@ -87,9 +98,14 @@ SafeMain::SafeMain(QWidget *parent)
     setSUBThreadsNumber(NUMPCL);
 	iThreadsNumber = NUMPCL;
 
-    setUseSUBThreads(true);
 //    safeMainV31();
-//	mySUB = new CapturSUB;
+#ifdef THREADSUB
+    setUseSUBThreads(true);
+#else
+	mySUB01 = new CapturSUB;
+	mySUB02 = new CapturSUB;
+	mySUB03 = new CapturSUB;
+#endif
 
 //#ifdef CONGL
     QTimer *timer = new QTimer(this);
@@ -100,7 +116,11 @@ SafeMain::SafeMain(QWidget *parent)
 
 SafeMain::~SafeMain()
 {
-
+#ifndef THREADSUB
+	mySUB01->read_end(0);
+	mySUB02->read_end(1);
+	mySUB03->read_end(2);
+#endif
 }
 
 void* safeImport(void* lib, const char* name)
@@ -608,6 +628,12 @@ void SafeMain::initializeGL()
     m_iNumVerticesPerThread = m_iNumVertices / iThreadsNumber;
     qDebug() << QString("................................ num_elems=%1 ").arg(num_elems);
 
+#ifndef THREADSUB
+	mySUB01->read_ini(0);
+	mySUB02->read_ini(1);
+	mySUB03->read_ini(2);
+#endif
+
 #endif
 //#define USE_CUDA_TREADS
 //#define USE_CUDA_NOTH
@@ -650,7 +676,7 @@ void SafeMain::initializeGL()
 #ifdef USE_CUDA_TREADS
     setUseThreads(true);
 #endif
-    setUseSUBThreads(true);
+//    setUseSUBThreads(true);
 //	oneAvatar();
 
     initialized = true;                           /// The devices was initialized
@@ -659,7 +685,7 @@ void SafeMain::initializeGL()
 
 }
 
-void SafeMain::processGeom(float despX, float despY, float despZ)
+void SafeMain::processGeomTh(float despX, float despY, float despZ)
 {
 	QVector3D* vVertex = ViewerVertexBuffer1->getPosns();
 	QVector4Du* vColor = ViewerVertexBuffer1->getColors();
@@ -710,14 +736,14 @@ void SafeMain::processGeom(float despX, float despY, float despZ)
 			num_elems = iNumPoints[i];
 			iNumPointsPrev[i][iPosPrev] = iNumPoints[i];
 //			qDebug() << QString("th=%1  iNumPoints=%2   iAvatar=%3 ").arg(i).arg(iNumPoints[i]).arg(QString::number( iAvatar, 16));
-			if (iNumPoints[i] > 0) {
+			if (iNumPoints[i] > 0 && mypcl[i]) {
 				int iNumAvatar = 5;
 				if (bOnlyOne)bDraw = false;
 				if (iAvatar == 1 && bOnlyOne) { bDraw = true; iNumAvatar = 1; };
 				if (iAvatar == 2 && bOnlyOne) { bDraw = true; iNumAvatar = 1; }
 				if (iAvatar == 4 && bOnlyOne) { bDraw = true; iNumAvatar = 1; }
 				//if (bOnlyOne) iNumAvatar = 1;
-			qDebug() << QString("SafeMain::processGeom   th=%1  iNumPoints=%2   iNumAvatar=%3 ").arg(i).arg(iNumPoints[i]).arg(iNumAvatar);
+			//qDebug() << QString("SafeMain::processGeomTh   th=%1  iNumPoints=%2   iNumAvatar=%3 ").arg(i).arg(iNumPoints[i]).arg(iNumAvatar);
 				for (int j1 = 0; j1 < iNumAvatar; j1++) {
 					if (bDraw) {
 
@@ -962,6 +988,137 @@ void SafeMain::processGeom(float despX, float despY, float despZ)
 
 }
 
+void SafeMain::processGeom(float despX, float despY, float despZ)
+{
+#ifndef THREADSUB
+
+	QVector3D* vVertex = ViewerVertexBuffer1->getPosns();
+	QVector4Du* vColor = ViewerVertexBuffer1->getColors();
+	IndexType* vIndices = ViewerVertexBuffer1->getIndices();
+	bool bDraw = false;
+	int iTest = 0;
+	int iNumAvat = 6;
+	FrameInfo* timestampInfo[NUMPCL];
+
+	int iposmat = 0; int i = 0;
+	mypcl[i] = mySUB01->getPCL();
+	timestampInfo[i] = mySUB01->getInfo();
+	iNumPoints[i] = mySUB01->getNumPoints();
+	num_elems = iNumPoints[i];
+	if (iNumPoints[i] > 0) {
+		theGLMessage.startOpenCL();
+
+		for (int i1 = 0; i1 < iNumPoints[i]; i1++) {
+			float vx = mypcl[i][i1].x;
+			float vy = mypcl[i][i1].y;
+			float vz = mypcl[i][i1].z;
+			if (!bOnlyOne) {
+
+				vx += despX;
+				vy += despY;
+				vz += despZ;
+				if (iposmat == 0) {
+					vx -= 1.5;
+					vy -= 1.5;
+				}
+				if (iposmat == 1) {
+					vx -= 1.5;
+					vy += 1.5;
+				}
+				if (iposmat == 2) {
+					vx += 1.5;
+					vy -= 1.5;
+				}
+				if (iposmat == 3) {
+					vx += 1.5;
+					vy += 1.5;
+				}
+				if (iposmat == 4) {
+					vx -= 3.0;
+					vy -= 1.5;
+				}
+				if (iposmat == 5) {
+					vx += 3.0;
+					vy -= 1.5;
+				}
+				if (iposmat == 6) {
+					vx -= 3.0;
+					vy += 1.5;
+				}
+				if (iposmat == 7) {
+					vx += 3.0;
+					vy += 1.5;
+				}
+				if (iposmat == 8) {
+					vx -= 1.5;
+					vy -= 4.0;
+				}
+				if (iposmat == 9) {
+					vx += 1.5;
+					vy -= 4.0;
+				}
+				if (iposmat == 10) {
+					vx -= 1.5;
+					vy += 4.0;
+				}
+				if (iposmat == 11) {
+					vx += 1.5;
+					vy += 4.0;
+				}
+
+				if (iposmat == 12) {
+					vx -= 3.0;
+					vy -= 4.0;
+				}
+				if (iposmat == 13) {
+					vx += 3.0;
+					vy -= 4.0;
+				}
+				if (iposmat == 14) {
+					vx -= 3.0;
+					vy += 4.0;
+				}
+				if (iposmat == 15) {
+					vx += 3.0;
+					vy += 4.0;
+				}
+			}
+
+			//*/
+			vVertex[i1].setX(vx);
+			vVertex[i1].setY(vy);
+			vVertex[i1].setZ(vz);
+			//				if (i1 < 20) { qDebug() << QString("i1=%0 vertex=%1 %2 %3 ").arg(i1).arg(vVertex[i1].x()).arg(vVertex[i1].y()).arg(vVertex[i1].z()); }
+
+			uint8_t cr = (mypcl[i][i1].r) * 0.5;
+			uint8_t cg = (mypcl[i][i1].g) * 0.5;
+			uint8_t cb = (mypcl[i][i1].b) * 0.5;
+			uint8_t ca = 255;
+			vColor[i1].setX(cr);
+			vColor[i1].setY(cg);
+			vColor[i1].setZ(cb);
+			//				if (i1 < 20) { qDebug() << QString("i1=%0 color=%1 %2 %3 ").arg(i1).arg(vColor[i1].x()).arg(vColor[i1].y()).arg(vColor[i1].z()); }
+		}
+		theGLMessage.stopOpenCL();
+		//			qDebug() << QString("time=%1 us").arg(time01.getElapsedTimeInMicroSec());
+
+		glPointSize(3.0);
+
+		ViewerVertexBuffer1->writeVertexBuffer(vVertex, num_elems, false);
+
+		ViewerVertexBuffer1->writeColorBuffer(vColor, num_elems, false);
+
+		ViewerVertexBuffer1->writeIndexBuffer(vIndices, num_elems, false);
+
+		ViewerVertexBuffer1->bindVertexBuffer();
+		ViewerVertexBuffer1->bindColorBuffer();
+		if (bSeeColor)ViewerVertexBuffer1->bindIndexBuffer(num_elems, false, false, true);
+		else ViewerVertexBuffer1->bindIndexBuffer(num_elems, false, false, false);
+
+	}
+#endif
+}
+
 
 void SafeMain::paintGL()
 {
@@ -981,8 +1138,9 @@ void SafeMain::paintGL()
     //auto depth = frames.get_depth_frame();
 
 
-    QMutex doStopMutex;
-
+#ifdef THREADSUB
+	QMutex doStopMutex;
+#endif
 	Timer time01;
 	iTotalPoints = 0;
 
@@ -1001,7 +1159,7 @@ void SafeMain::paintGL()
 	glDisable(GL_TEXTURE_2D);
 	glEnable(GL_COLOR_MATERIAL);
 
-//	qDebug() << QString("m_fDistEye=%1  ").arg(m_fDistEye);
+	//qDebug() << QString("SafeMain::paintGL   m_fDistEye=%1  yElev=%2 ").arg(m_fDistEye).arg(yElev);
     int iW = (width() * 0.5) + m_fDistEye;
     int iH = (height() * 0.5) + m_fDistEye;
 
@@ -1012,7 +1170,7 @@ void SafeMain::paintGL()
     glMatrixMode(GL_MODELVIEW);
 
     glLoadIdentity();
-    glTranslatef(0, yElev, 0);
+    glTranslatef(0.0, yElev, 0);
 
 //	qDebug() << QString("m_fDistEye=%1 yElev=%2 ").arg(m_fDistEye).arg(yElev);
 
@@ -1066,7 +1224,9 @@ void SafeMain::paintGL()
     //ViewerVertexBuffer1->writeColorBuffer(vColor, num_elems, filePos, false);
 
 //	qDebug() << QString("paintGL ---------------------------------- ");
-	doStopMutex.lock();
+#ifdef THREADSUB
+		doStopMutex.lock();
+#endif
 
 //	glColor3f(1.0, 0.0, 0.0);
 	theGLMessage.startPaint();
@@ -1074,10 +1234,15 @@ void SafeMain::paintGL()
 	//int iTest = 0;
 	//int iNumAvat = 6;
 	//FrameInfo* timestampInfo[NUMPCL];
-
+#ifdef	THREADSUB
 	//processGeom(0.0, 12.0, 0.0);
 	//processGeom(-10.0, 0.0, 0.0);
-	processGeom(0.0, 0.0, 0.0);
+
+	processGeomTh(0.0, 0.0, 0.0);
+//	processGeom(0.0, 0.0, 0.0);
+//void CapturSUB::processGeom(GLVertexBuffers *ViewerVertexBuffer1, GLMessages* theGLMessage, bool bSeeColor, float despX, float despY, float despZ)
+
+
 	//processGeom(10.0, 0.0, 0.0);
 	//processGeom(0.0, -12.0, 0.0);
 
@@ -1085,7 +1250,15 @@ void SafeMain::paintGL()
 	//processGeom(-10.0, 12.0, 0.0);
 	//processGeom(10.0, -12.0, 0.0);
 	//processGeom(-10.0, -12.0, 0.0);
-
+#else
+	float despX1 = 1.5;
+	mySUB01->read(0);
+	mySUB01->processGeom(ViewerVertexBuffer1, &theGLMessage, bSeeColor, -1.2 + despX1, 0, 0);
+	//mySUB02->read(1);
+	//mySUB02->processGeom(ViewerVertexBuffer1, &theGLMessage, bSeeColor, 0 + despX1, 0, 0);
+	//mySUB03->read(2);
+	//mySUB03->processGeom(ViewerVertexBuffer1, &theGLMessage, bSeeColor, 1.2 + despX1, 0, 0);
+#endif
 	/*
 	for (int i = 0; i < getSUBThreadsNumber(); i++) {
 		CapturSUBThread* thNode = theSUBNodes.at(i);
@@ -1750,8 +1923,9 @@ PutPixelColour(x, y) = RGB(newRed, newGreen, newBlue)
 
 
 
+#ifdef THREADSUB
 	doStopMutex.unlock();
-
+#endif
     //ViewerVertexBuffer1->bindVertexBuffer();
     //ViewerVertexBuffer1->bindColorBuffer();
     //ViewerVertexBuffer1->bindIndexBuffer(num_elems, false, false);

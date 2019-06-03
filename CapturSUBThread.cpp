@@ -19,6 +19,7 @@ CapturSUBThread::CapturSUBThread()
 	, iNumPoints(0)
 	, mypcl(0)
 	, iNumReads(1)
+	, bInitialized(false)
 {
     qDebug("Constructor CapturSUBThread ");
 	size_t  iSizeB = 1048576 * sizeof(cwipc_point) * 4;
@@ -57,6 +58,9 @@ void CapturSUBThread::run()
 	memset(buff1, 0, 1024);
 	memset(buff2, 0, 64);
 	memset(buff3, 0, 64);
+
+//	iNumReads = 0;
+
 
 #if defined( Q_OS_WIN )
     SetDllDirectory(L"D:/i2cat_vrtogether/v31_stable_qt5/getSUB/w64");
@@ -125,11 +129,12 @@ void CapturSUBThread::run()
         doStopMutex.unlock();
 
 
-		doStopM01.lock();
+		doStopM01.lock();// ================================ LOCK THREADS ==============================================
 		myTimer.start();
 		Sleep(DELAY);
 
 		n1++;
+		iNumReads++;
 
 		iNum = 0;
 		iSize = 1048576 * sizeof(cwipc_point) * 4;
@@ -157,9 +162,13 @@ void CapturSUBThread::run()
 						if (uID == 1)theGLMessageTh->setReadedPCL2comp((int)iSizeB);
 						if (uID == 2)theGLMessageTh->setReadedPCL3comp((int)iSizeB);
 
-			if (!iSizeB)Sleep(100);
 
 			if (iSizeB > 0) {
+				//for (int i = 0; i < 20; i++) {
+				//	qDebug() << QString("Threads   i=%1 buffer_sub=%2     uID=%3 ")
+				//		.arg(i)
+				//		.arg(dst[i]).arg(uID);
+				//}
 				//
 				// Uncompress
 				//
@@ -196,7 +205,7 @@ void CapturSUBThread::run()
 					int isizepcl = pc->get_uncompressed_size(CWIPC_POINT_VERSION);
 					iNum = pc->copy_uncompressed(mypcl, isizepcl);
 					timestampInfo->timestamp = info->timestamp;
-					qDebug() << QString("CapturSUBThread::run  _________ isizepcl=%1 nelems=%2 iNum_readed=%3  uID=%4 ").arg(isizepcl).arg(isizepcl / sizeof(cwipc_point)).arg(iNum).arg(uID);
+					//qDebug() << QString("CapturSUBThread::run  _________ isizepcl=%1 nelems=%2 iNum_readed=%3  uID=%4 ").arg(isizepcl).arg(isizepcl / sizeof(cwipc_point)).arg(iNum).arg(uID);
 					if (uID == 0)theGLMessageTh->setUncomp1(iNum);
 					if (uID == 1)theGLMessageTh->setUncomp2(iNum);
 					if (uID == 2)theGLMessageTh->setUncomp3(iNum);
@@ -216,17 +225,60 @@ void CapturSUBThread::run()
 					//iNumPLY++;
 
 					pc->free(); // We no longer need to pointcloud
-
+					bInitialized = true;
 				}
 			}
-//		}
+			if (bInitialized && !iSizeB && iNumReads > 100) {
+				const std::string mediaUrl2 = "http://vrt-pcl2dash.viaccess-orca.com/loot/vrtogether.mpd";
+				char buff1[1024];
+				char buff2[64];
+				char buff3[64];
+				//uID = 0;
+				Sleep(100);
+
+				QString avatarName = QString("loot");
+				QString mediaUrl = QString("http://vrt-pcl2dash.viaccess-orca.com/loot/vrtogether.mpd");
+				if (uID == 2) { mediaUrl = QString("http://vrt-pcl2dash.viaccess-orca.com/loot/vrtogether.mpd"); avatarName = QString("loot"); }
+				if (uID == 1) { mediaUrl = QString("http://vrt-pcl2dash.viaccess-orca.com/longdress/vrtogether.mpd"); avatarName = QString("longdress"); }
+				if (uID == 0) { mediaUrl = QString("http://vrt-pcl2dash.viaccess-orca.com/redandblack/vrtogether.mpd"); avatarName = QString("redandblack"); }
+				//if (uID == 0) { mediaUrl = QString("http://livesim.dashif.org/livesim/testpic_2s/Manifest.mpd"); avatarName = QString("testpic 2s 1"); }
+				//if (uID == 1) { mediaUrl = QString("http://livesim.dashif.org/livesim/testpic_2s/Manifest.mpd"); avatarName = QString("testpic 2s 2"); }
+				//if (uID == 2) { mediaUrl = QString("http://vm2.dashif.org/livesim-dev/testpic_2s/Manifest.mpd"); avatarName = QString("testpic 2s 3"); }
+				memset(buff1, 0, 1024);
+				memset(buff2, 0, 64);
+				memset(buff3, 0, 64);
+
+
+				func_sub_destroy(handle);
+
+				itoa(uID, buff3, 10);
+				strcpy_s(buff2, 64, "MyMediaPipeline");
+				strcat_s(buff2, buff3);
+				handle = func_sub_create(buff2);
+				//	auto handle = func_sub_create("MyMediaPipeline");
+
+				strcpy_s(buff1, 1024, mediaUrl.toLocal8Bit());
+				qDebug() << QString("....------.... buff1=%1  th=%2 buff2=%3  iNumReads=%4 ").arg(buff1).arg(uID).arg(buff2).arg(iNumReads);
+				bool bRes = func_sub_play(handle, buff1);
+
+				iStreamCount = func_sub_get_stream_count(handle);
+
+				qDebug() << QString("CapturSUBThread::run     handle=%1 streamIndex=%2 dst=%3 iSize=%4 info=%5  uID=%6 bRes=%7 iStreamCount=%8 ").arg((qlonglong)handle).arg(streamIndex).arg(_msize(dst)).arg(iSize).arg(info->timestamp).arg(uID).arg(bRes).arg(iStreamCount);
+				iSizeB = (size_t)func_sub_grab_frame(handle, streamIndex, dst, iSize, info);
+				qDebug() << QString("CapturSUBThread::run   iSizeB_func_sub_grab_frame=%1     ").arg(iSizeB);
+//*/
+				iNumReads = 0;
+			}
+			//		}
 		//iNumPoints = iNum;
 		myTimer.stop();
 		double dTime = myTimer.getElapsedTimeInMilliSec();
 
-		doStopM01.unlock();
+		doStopM01.unlock();// ================================ UNLOCK THREADS ==============================================
     }// while(1)
 
+
+	// ----------------------------- free memory buffers ---------------------------
 	free(dst);
 	dst = 0;
 	free(mypcl);

@@ -75,8 +75,11 @@ public:
     bool getAllocated() { return allocated; }
     bool getPLYloaded() { return plyloaded; }
 
-
-	CapturSUB* mySUB;
+#ifndef THREADSUB
+	CapturSUB* mySUB01;
+	CapturSUB* mySUB02;
+	CapturSUB* mySUB03;
+#endif
 
 
 public slots:
@@ -93,8 +96,9 @@ signals:
 
 protected:
     void initializeGL();
+	void processGeomTh(float depX, float despY, float despZ);
 	void processGeom(float depX, float despY, float despZ);
-    void paintGL();
+	void paintGL();
     void resizeGL(int width, int height);
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;

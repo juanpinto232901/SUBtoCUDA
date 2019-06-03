@@ -9,6 +9,8 @@
 #include <QDir>
 #include <QFile>
 #include <QLibrary>
+
+#include "GLVertexBuffers.h"
 #include "TimerHQ.h"
 #include "GLMessages.h"
 
@@ -25,12 +27,16 @@ public:
 
 
         CapturSUB();
-        void read();
+        void read(uint uID);
+		void read_ini(uint uID);
+		void read_end(uint uID);
+		void processGeom(GLVertexBuffers *ViewerVertexBuffer1, GLMessages* theGLMessage, bool bSeeColor, float despX, float despY, float despZ);
+
 
     void setName(QString tTxt){ txt1 = QString(tTxt); }
     QString getName() { return txt1; }
-    void setID(uint uTmp){ uID = uTmp; }
-    uint getID() { return uID; }
+    void setID(uint uTmp){ uIDa = uTmp; }
+    uint getID() { return uIDa; }
     void stop();
     void unStop();
 
@@ -78,7 +84,7 @@ public:
 
 protected:
     QString txt1;
-    uint uID;
+    uint uIDa;
 
     volatile bool doStop;
     QMutex doStopMutex;
@@ -91,7 +97,7 @@ protected:
 	FrameInfo* timestampInfo;
 
 	int iNumReads;
-
+	sub_handle* handle;
 };
 
 #endif // CAPTURSUB_H

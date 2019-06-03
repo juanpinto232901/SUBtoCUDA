@@ -91,6 +91,7 @@ protected:
 	FrameInfo* timestampInfo;
 
 	int iNumReads;
+	bool bInitialized;
 
 };
 
