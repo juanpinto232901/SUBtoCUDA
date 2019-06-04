@@ -44,6 +44,12 @@ SafeMain::SafeMain(QWidget *parent)
     , m_fViewportZoomFactor(0.0)
     , ViewerVertexBuffer1(0)
     , iBufferID(0)
+    #ifdef USE_CUDA
+        , block_size(16)
+        , positionCUDABuffer(0)
+        , posColorCUDABuffer(0)
+        , indicesCUDABuffer(0)
+    #endif
     , iMaxMem(0)
     , filePos(0)
     , num_elems(0)
@@ -97,6 +103,8 @@ SafeMain::SafeMain(QWidget *parent)
 //	setThreadsNumber(4);// iNumProcessorsQTH - 2);
     setSUBThreadsNumber(NUMPCL);
 	iThreadsNumber = NUMPCL;
+
+    cudaInfo();
 
 //    safeMainV31();
 #ifdef THREADSUB
@@ -604,7 +612,6 @@ void SafeMain::initializeGL()
 //*/
 
 #else
-    int iPosBlock = 0;//iIndex * BUFFERMEM;
     IndexType *indices = ViewerVertexBuffer1->getIndices();
 //    qDebug() << QString("........................ pointer to indices=%1 ").arg((uint)indices);
     Q_ASSERT(indices);
@@ -682,6 +689,311 @@ void SafeMain::initializeGL()
     initialized = true;                           /// The devices was initialized
     allocated = true;                             /// The memory was allocated
     plyloaded = true;                             /// The file PLY was loaded
+
+}
+
+void SafeMain::processGeomCUDA(float despX, float despY, float despZ)
+{
+    QVector3D* vVertex = ViewerVertexBuffer1->getPosns();
+    QVector4Du* vColor = ViewerVertexBuffer1->getColors();
+    IndexType* vIndices = ViewerVertexBuffer1->getIndices();
+    bool bDraw = false;
+    int iTest = 0;
+    int iNumAvat = 6;
+    FrameInfo* timestampInfo[NUMPCL];
+
+    for (int i = 0; i < getSUBThreadsNumber(); i++) {
+        CapturSUBThread* thNode = theSUBNodes.at(i);
+
+        bDraw = false;
+        iTest = iAvatar & 1;
+        if (iTest && i == 0)bDraw = true;
+        iTest = iAvatar & 2;
+        if (iTest && i == 1)bDraw = true;
+        iTest = iAvatar & 4;
+        if (iTest && i == 2)bDraw = true;
+        iTest = iAvatar & 8;
+        if (iTest && i == 3)bDraw = true;
+        iTest = iAvatar & 16;
+        if (iTest && i == 4)bDraw = true;
+        iTest = iAvatar & 32;
+        if (iTest && i == 5)bDraw = true;
+        iTest = iAvatar & 64;
+        if (iTest && i == 6)bDraw = true;
+        iTest = iAvatar & 128;
+        if (iTest && i == 7)bDraw = true;
+        iTest = iAvatar & 256;
+        if (iTest && i == 8)bDraw = true;
+        iTest = iAvatar & 512;
+        if (iTest && i == 9)bDraw = true;
+        iTest = iAvatar & 1024;
+        if (iTest && i == 10)bDraw = true;
+        iTest = iAvatar & 2048;
+        if (iTest && i == 11)bDraw = true;
+
+//		qDebug() << QString("SafeMain::processGeom   th=%2 bDraw=%3 ").arg(i).arg(bDraw);
+        //				qDebug() << QString("iAvatar=%1 th=%2 bDraw=%3 ").arg(QString::number(iAvatar, 16)).arg(i).arg(bDraw);
+        if (bDraw) {
+            //ViewerVertexBuffer1->clearVertexBufferMem(64536, 1);
+            //ViewerVertexBuffer1->clearColorBufferMem(64536, 1);
+            int iposmat = 0;
+            mypcl[i] = thNode->getPCL();
+            timestampInfo[i] = thNode->getInfo();
+            iNumPoints[i] = thNode->getNumPoints();
+            num_elems = iNumPoints[i];
+            iNumPointsPrev[i][iPosPrev] = iNumPoints[i];
+//			qDebug() << QString("th=%1  iNumPoints=%2   iAvatar=%3 ").arg(i).arg(iNumPoints[i]).arg(QString::number( iAvatar, 16));
+            if (iNumPoints[i] > 0 && mypcl[i]) {
+                int iNumAvatar = 5;
+                if (bOnlyOne)bDraw = false;
+                if (iAvatar == 1 && bOnlyOne) { bDraw = true; iNumAvatar = 1; }
+                if (iAvatar == 2 && bOnlyOne) { bDraw = true; iNumAvatar = 1; }
+                if (iAvatar == 4 && bOnlyOne) { bDraw = true; iNumAvatar = 1; }
+                //if (bOnlyOne) iNumAvatar = 1;
+            //qDebug() << QString("SafeMain::processGeomTh   th=%1  iNumPoints=%2   iNumAvatar=%3 ").arg(i).arg(iNumPoints[i]).arg(iNumAvatar);
+                for (int j1 = 0; j1 < iNumAvatar; j1++) {
+                    if (bDraw) {
+
+                        iposmat = (i * 5) + j1;
+                        iTotalPoints += iNumPoints[i];
+                        //qDebug() << QString("........................ paintGL   i=%1 iNumPoint=%2  mypcl=%3 size=%4  cwipc_point=%5 filePos=%6 ").arg(i).arg(iNumPoints[i]).arg((qlonglong)mypcl[i]).arg(_msize(mypcl[i])).arg(sizeof(cwipc_point)).arg(filePos);
+                        //for (int n = 0; n < 30; n++) {
+                        //	qDebug() << QString("paintGL     n=%1 pcl=%2 %3 %4  rgb=%5 %6 %7    ").arg(n).arg(mypcl[i][n].x).arg(mypcl[i][n].y).arg(mypcl[i][n].z).arg(mypcl[i][n].r).arg(mypcl[i][n].g).arg(mypcl[i][n].b);
+                        //}
+                        theGLMessage.startOpenCL();
+
+                        for (int i1 = 0; i1 < iNumPoints[i]; i1++) {
+                            float vx = mypcl[i][i1].x;
+                            float vy = mypcl[i][i1].y;
+                            float vz = mypcl[i][i1].z;
+                            if (!bOnlyOne) {
+
+                                vx += despX;
+                                vy += despY;
+                                vz += despZ;
+                                if (iposmat == 0) {
+                                    vx -= 1.5;
+                                    vy -= 1.5;
+                                }
+                                if (iposmat == 1) {
+                                    vx -= 1.5;
+                                    vy += 1.5;
+                                }
+                                if (iposmat == 2) {
+                                    vx += 1.5;
+                                    vy -= 1.5;
+                                }
+                                if (iposmat == 3) {
+                                    vx += 1.5;
+                                    vy += 1.5;
+                                }
+                                if (iposmat == 4) {
+                                    vx -= 3.0;
+                                    vy -= 1.5;
+                                }
+                                if (iposmat == 5) {
+                                    vx += 3.0;
+                                    vy -= 1.5;
+                                }
+                                if (iposmat == 6) {
+                                    vx -= 3.0;
+                                    vy += 1.5;
+                                }
+                                if (iposmat == 7) {
+                                    vx += 3.0;
+                                    vy += 1.5;
+                                }
+                                if (iposmat == 8) {
+                                    vx -= 1.5;
+                                    vy -= 4.0;
+                                }
+                                if (iposmat == 9) {
+                                    vx += 1.5;
+                                    vy -= 4.0;
+                                }
+                                if (iposmat == 10) {
+                                    vx -= 1.5;
+                                    vy += 4.0;
+                                }
+                                if (iposmat == 11) {
+                                    vx += 1.5;
+                                    vy += 4.0;
+                                }
+
+                                if (iposmat == 12) {
+                                    vx -= 3.0;
+                                    vy -= 4.0;
+                                }
+                                if (iposmat == 13) {
+                                    vx += 3.0;
+                                    vy -= 4.0;
+                                }
+                                if (iposmat == 14) {
+                                    vx -= 3.0;
+                                    vy += 4.0;
+                                }
+                                if (iposmat == 15) {
+                                    vx += 3.0;
+                                    vy += 4.0;
+                                }
+                            }
+
+                            //*/
+                            vVertex[i1].setX(vx);
+                            vVertex[i1].setY(vy);
+                            vVertex[i1].setZ(vz);
+                            //				if (i1 < 20) { qDebug() << QString("i1=%0 vertex=%1 %2 %3 ").arg(i1).arg(vVertex[i1].x()).arg(vVertex[i1].y()).arg(vVertex[i1].z()); }
+
+                            uint8_t cr = (mypcl[i][i1].r) * 0.5;
+                            uint8_t cg = (mypcl[i][i1].g) * 0.5;
+                            uint8_t cb = (mypcl[i][i1].b) * 0.5;
+                            uint8_t ca = 255;
+                            vColor[i1].setX(cr);
+                            vColor[i1].setY(cg);
+                            vColor[i1].setZ(cb);
+                            //				if (i1 < 20) { qDebug() << QString("i1=%0 color=%1 %2 %3 ").arg(i1).arg(vColor[i1].x()).arg(vColor[i1].y()).arg(vColor[i1].z()); }
+                        }
+                        theGLMessage.stopOpenCL();
+                        //			qDebug() << QString("time=%1 us").arg(time01.getElapsedTimeInMicroSec());
+
+                        glPointSize(3.0);
+#ifdef USE_CPU
+                        ViewerVertexBuffer1->writeVertexBuffer(vVertex, num_elems, false);
+
+                        ViewerVertexBuffer1->writeColorBuffer(vColor, num_elems, false);
+
+                        ViewerVertexBuffer1->writeIndexBuffer(vIndices, num_elems, false);
+
+                        ViewerVertexBuffer1->bindVertexBuffer();
+                        ViewerVertexBuffer1->bindColorBuffer();
+                        if (bSeeColor)ViewerVertexBuffer1->bindIndexBuffer(num_elems, false, false, true);
+                        else ViewerVertexBuffer1->bindIndexBuffer(num_elems, false, false, false);
+#endif
+                        int uio = 0;
+                    }
+                }
+                if (i >= 2 && bDraw) {
+                    iposmat = (i * 5) + 5;
+                    iTotalPoints += iNumPoints[i];
+                    //qDebug() << QString("........................ paintGL   i=%1 iNumPoint=%2  mypcl=%3 size=%4  cwipc_point=%5 filePos=%6 ").arg(i).arg(iNumPoints[i]).arg((qlonglong)mypcl[i]).arg(_msize(mypcl[i])).arg(sizeof(cwipc_point)).arg(filePos);
+                    //for (int n = 0; n < 30; n++) {
+                    //	qDebug() << QString("paintGL     n=%1 pcl=%2 %3 %4  rgb=%5 %6 %7    ").arg(n).arg(mypcl[i][n].x).arg(mypcl[i][n].y).arg(mypcl[i][n].z).arg(mypcl[i][n].r).arg(mypcl[i][n].g).arg(mypcl[i][n].b);
+                    //}
+                    theGLMessage.startOpenCL();
+
+                    for (int i1 = 0; i1 < iNumPoints[i]; i1++) {
+                        float vx = mypcl[i][i1].x;
+                        float vy = mypcl[i][i1].y;
+                        float vz = mypcl[i][i1].z;
+                        vx += despX;
+                        vy += despY;
+                        vz += despZ;
+                        if (iposmat == 0) {
+                            vx -= 1.5;
+                            vy -= 1.5;
+                        }
+                        if (iposmat == 1) {
+                            vx -= 1.5;
+                            vy += 1.5;
+                        }
+                        if (iposmat == 2) {
+                            vx += 1.5;
+                            vy -= 1.5;
+                        }
+                        if (iposmat == 3) {
+                            vx += 1.5;
+                            vy += 1.5;
+                        }
+                        if (iposmat == 4) {
+                            vx -= 3.0;
+                            vy -= 1.5;
+                        }
+                        if (iposmat == 5) {
+                            vx += 3.0;
+                            vy -= 1.5;
+                        }
+                        if (iposmat == 6) {
+                            vx -= 3.0;
+                            vy += 1.5;
+                        }
+                        if (iposmat == 7) {
+                            vx += 3.0;
+                            vy += 1.5;
+                        }
+                        if (iposmat == 8) {
+                            vx -= 1.5;
+                            vy -= 4.0;
+                        }
+                        if (iposmat == 9) {
+                            vx += 1.5;
+                            vy -= 4.0;
+                        }
+                        if (iposmat == 10) {
+                            vx -= 1.5;
+                            vy += 4.0;
+                        }
+                        if (iposmat == 11) {
+                            vx += 1.5;
+                            vy += 4.0;
+                        }
+
+                        if (iposmat == 12) {
+                            vx -= 3.0;
+                            vy -= 4.0;
+                        }
+                        if (iposmat == 13) {
+                            vx += 3.0;
+                            vy -= 4.0;
+                        }
+                        if (iposmat == 14) {
+                            vx -= 3.0;
+                            vy += 4.0;
+                        }
+                        if (iposmat == 15) {
+                            vx += 3.0;
+                            vy += 4.0;
+                        }
+
+                        //*/
+                        vVertex[i1].setX(vx);
+                        vVertex[i1].setY(vy);
+                        vVertex[i1].setZ(vz);
+                        //				if (i1 < 20) { qDebug() << QString("i1=%0 vertex=%1 %2 %3 ").arg(i1).arg(vVertex[i1].x()).arg(vVertex[i1].y()).arg(vVertex[i1].z()); }
+
+                        uint8_t cr = (mypcl[i][i1].r) * 0.5;
+                        uint8_t cg = (mypcl[i][i1].g) * 0.5;
+                        uint8_t cb = (mypcl[i][i1].b) * 0.5;
+                        uint8_t ca = 255;
+                        vColor[i1].setX(cr);
+                        vColor[i1].setY(cg);
+                        vColor[i1].setZ(cb);
+                        //				if (i1 < 20) { qDebug() << QString("i1=%0 color=%1 %2 %3 ").arg(i1).arg(vColor[i1].x()).arg(vColor[i1].y()).arg(vColor[i1].z()); }
+                    }
+                    theGLMessage.stopOpenCL();
+                    //			qDebug() << QString("time=%1 us").arg(time01.getElapsedTimeInMicroSec());
+
+                    glPointSize(3.0);
+#ifdef USE_CPU
+                    ViewerVertexBuffer1->writeVertexBuffer(vVertex, num_elems, false);
+
+                    ViewerVertexBuffer1->writeColorBuffer(vColor, num_elems, false);
+
+                    ViewerVertexBuffer1->writeIndexBuffer(vIndices, num_elems, false);
+
+                    ViewerVertexBuffer1->bindVertexBuffer();
+                    ViewerVertexBuffer1->bindColorBuffer();
+                    if (bSeeColor)ViewerVertexBuffer1->bindIndexBuffer(num_elems, false, false, true);
+                    else ViewerVertexBuffer1->bindIndexBuffer(num_elems, false, false, false);
+#endif
+                }
+            }
+
+            if (iPosPrev >= 10)iPosPrev = -1;
+            iPosPrev++;
+
+        }
+        bDraw = false;
+    }
 
 }
 
@@ -850,7 +1162,7 @@ void SafeMain::processGeomTh(float despX, float despY, float despZ)
 						//			qDebug() << QString("time=%1 us").arg(time01.getElapsedTimeInMicroSec());
 
 						glPointSize(3.0);
-
+#ifdef USE_CPU
 						ViewerVertexBuffer1->writeVertexBuffer(vVertex, num_elems, false);
 
 						ViewerVertexBuffer1->writeColorBuffer(vColor, num_elems, false);
@@ -861,6 +1173,7 @@ void SafeMain::processGeomTh(float despX, float despY, float despZ)
 						ViewerVertexBuffer1->bindColorBuffer();
 						if (bSeeColor)ViewerVertexBuffer1->bindIndexBuffer(num_elems, false, false, true);
 						else ViewerVertexBuffer1->bindIndexBuffer(num_elems, false, false, false);
+#endif
 						int uio = 0;
 					}
 				}
@@ -965,7 +1278,7 @@ void SafeMain::processGeomTh(float despX, float despY, float despZ)
 					//			qDebug() << QString("time=%1 us").arg(time01.getElapsedTimeInMicroSec());
 
 					glPointSize(3.0);
-
+#ifdef USE_CPU
 					ViewerVertexBuffer1->writeVertexBuffer(vVertex, num_elems, false);
 
 					ViewerVertexBuffer1->writeColorBuffer(vColor, num_elems, false);
@@ -976,6 +1289,7 @@ void SafeMain::processGeomTh(float despX, float despY, float despZ)
 					ViewerVertexBuffer1->bindColorBuffer();
 					if (bSeeColor)ViewerVertexBuffer1->bindIndexBuffer(num_elems, false, false, true);
 					else ViewerVertexBuffer1->bindIndexBuffer(num_elems, false, false, false);
+#endif
 				}
 			}
 
@@ -1955,11 +2269,11 @@ PutPixelColour(x, y) = RGB(newRed, newGreen, newBlue)
         //	uint iIndex = (n * MAX_X) + m;
         //	uint iIndex1 = iPosStart + (iIndex * 3);
         //	uint iIndex2 = iColStart + (iIndex * 4);
-
+		qDebug() << QString("USE_CUDA_TREADS_ONE  ");
         setVerticesCUDAMulti();
         ViewerVertexBuffer1->bindVertexBuffer();
         ViewerVertexBuffer1->bindColorBuffer();
-        ViewerVertexBuffer1->bindIndexBuffer(num_elems, false, false);
+        ViewerVertexBuffer1->bindIndexBuffer(num_elems, false, false, true);
 #endif
 
 //    qDebug() << QString("VRtogetherWidget::paintGL   num_elems=%1  m_fDistEye=%2 ").arg(num_elems).arg(m_fDistEye);
@@ -2447,3 +2761,1709 @@ void SafeMain::setVars1(int iVal1, int iVal2, int iVal3)
 	theGLMessage.setReadedPCL1comp(iVal2);
 	theGLMessage.setUncomp1(iVal3);
 }
+
+void SafeMain::cudaInfo()
+{
+#ifdef USE_CUDA
+    int deviceCount = 0;
+    cudaError_t error_id = cudaGetDeviceCount(&deviceCount);
+
+    qDebug() << QString("............................ cudaInfo ................................ ");
+    if (error_id != cudaSuccess)
+    {
+//        printf("cudaGetDeviceCount returned %d\n-> %s\n", (int)error_id, cudaGetErrorString(error_id));
+//        printf("Result = FAIL\n");
+        qDebug() << QString("cudaGetDeviceCount returned %1\n-> %2\n").arg((int)error_id).arg(cudaGetErrorString(error_id));
+        qDebug() << QString("Result = FAIL\n");
+        exit(EXIT_FAILURE);
+    }
+    // This function call returns 0 if there are no CUDA capable devices.
+    if (deviceCount == 0)
+    {
+        //printf("There are no available device(s) that support CUDA\n");
+        qDebug("There are no available device(s) that support CUDA\n");
+    }
+    else
+    {
+//        printf("Detected %d CUDA Capable device(s)\n", deviceCount);
+        qDebug() << QString("Detected %1 CUDA Capable device(s)\n").arg(deviceCount);
+    }
+    int dev, driverVersion = 0, runtimeVersion = 0;
+
+    for (dev = 0; dev < deviceCount; ++dev)
+    {
+        cudaSetDevice(dev);
+        cudaDeviceProp deviceProp;
+        cudaGetDeviceProperties(&deviceProp, dev);
+
+//        printf("\nDevice %d: \"%s\"\n", dev, deviceProp.name);
+        qDebug() << QString("\nDevice %1: \"%2\"\n").arg( dev).arg( deviceProp.name);
+
+        // Console log
+        cudaDriverGetVersion(&driverVersion);
+        cudaRuntimeGetVersion(&runtimeVersion);
+//        printf("  CUDA Driver Version / Runtime Version          %d.%d / %d.%d\n", driverVersion/1000, (driverVersion%100)/10, runtimeVersion/1000, (runtimeVersion%100)/10);
+//        printf("  CUDA Capability Major/Minor version number:    %d.%d\n", deviceProp.major, deviceProp.minor);
+        qDebug() << QString("  CUDA Driver Version / Runtime Version          %1.%2 / %3.%4\n").arg( driverVersion/1000).arg( (driverVersion%100)/10).arg( runtimeVersion/1000).arg( (runtimeVersion%100)/10);
+        qDebug() << QString("  CUDA Capability Major/Minor version number:    %1.%2\n").arg( deviceProp.major).arg( deviceProp.minor);
+
+
+        char msg[256];
+        sprintf(msg, "  Total amount of global memory:                 %.0f MBytes (%llu bytes)\n",
+                (float)deviceProp.totalGlobalMem/1048576.0f, (unsigned long long) deviceProp.totalGlobalMem);
+        qDebug() << QString("%1").arg( msg);
+
+        qDebug() << QString("  (%1) Multiprocessors, (%2) CUDA Cores/MP:     %3 CUDA Cores\n")
+               .arg(deviceProp.multiProcessorCount)
+               .arg(_ConvertSMVer2Cores(deviceProp.major, deviceProp.minor))
+               .arg(_ConvertSMVer2Cores(deviceProp.major, deviceProp.minor) * deviceProp.multiProcessorCount);
+        qDebug() << QString("  GPU Clock rate:                                %1 MHz (%2 GHz)\n").arg( deviceProp.clockRate * 1e-3f).arg( deviceProp.clockRate * 1e-6f);
+
+
+#if CUDART_VERSION >= 5000
+        // This is supported in CUDA 5.0 (runtime API device properties)
+        qDebug() << QString("  Memory Clock rate:                             %1 Mhz\n").arg( deviceProp.memoryClockRate * 1e-3f);
+        qDebug() << QString("  Memory Bus Width:                              %2-bit\n").arg(deviceProp.memoryBusWidth);
+
+        if (deviceProp.l2CacheSize)
+        {
+            qDebug() << QString("  L2 Cache Size:                                 %1 bytes\n").arg( deviceProp.l2CacheSize);
+        }
+
+#else
+        // This only available in CUDA 4.0-4.2 (but these were only exposed in the CUDA Driver API)
+        int memoryClock;
+        getCudaAttribute<int>(&memoryClock, CU_DEVICE_ATTRIBUTE_MEMORY_CLOCK_RATE, dev);
+        printf("  Memory Clock rate:                             %.0f Mhz\n", memoryClock * 1e-3f);
+        int memBusWidth;
+        getCudaAttribute<int>(&memBusWidth, CU_DEVICE_ATTRIBUTE_GLOBAL_MEMORY_BUS_WIDTH, dev);
+        printf("  Memory Bus Width:                              %d-bit\n", memBusWidth);
+        int L2CacheSize;
+        getCudaAttribute<int>(&L2CacheSize, CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE, dev);
+
+        if (L2CacheSize)
+        {
+            printf("  L2 Cache Size:                                 %d bytes\n", L2CacheSize);
+        }
+
+#endif
+
+        qDebug() << QString("  Maximum Texture Dimension Size (x,y,z)         1D=(%1), 2D=(%2, %3), 3D=(%4, %5, %6)\n")
+               .arg(deviceProp.maxTexture1D   ).arg( deviceProp.maxTexture2D[0], deviceProp.maxTexture2D[1])
+               .arg(deviceProp.maxTexture3D[0]).arg( deviceProp.maxTexture3D[1]).arg( deviceProp.maxTexture3D[2]);
+        qDebug() << QString("  Maximum Layered 1D Texture Size, (num) layers  1D=(%1), %2 layers\n")
+               .arg(deviceProp.maxTexture1DLayered[0]).arg( deviceProp.maxTexture1DLayered[1]);
+        qDebug() << QString("  Maximum Layered 2D Texture Size, (num) layers  2D=(%1, %2), %3 layers\n")
+               .arg(deviceProp.maxTexture2DLayered[0]).arg( deviceProp.maxTexture2DLayered[1]).arg( deviceProp.maxTexture2DLayered[2]);
+
+
+        qDebug() << QString("  Total amount of constant memory:               %1 bytes\n").arg( deviceProp.totalConstMem);
+        qDebug() << QString("  Total amount of shared memory per block:       %1 bytes\n").arg( deviceProp.sharedMemPerBlock);
+        qDebug() << QString("  Total number of registers available per block: %1\n").arg( deviceProp.regsPerBlock);
+        qDebug() << QString("  Warp size:                                     %1\n").arg( deviceProp.warpSize);
+        qDebug() << QString("  Maximum number of threads per multiprocessor:  %1\n").arg( deviceProp.maxThreadsPerMultiProcessor);
+        qDebug() << QString("  Maximum number of threads per block:           %1\n").arg( deviceProp.maxThreadsPerBlock);
+        qDebug() << QString("  Max dimension size of a thread block (x,y,z): (%1, %2, %3)\n")
+               .arg(deviceProp.maxThreadsDim[0])
+               .arg(deviceProp.maxThreadsDim[1])
+               .arg(deviceProp.maxThreadsDim[2]);
+        qDebug() << QString("  Max dimension size of a grid size    (x,y,z): (%1, %2, %3)\n")
+               .arg(deviceProp.maxGridSize[0])
+               .arg(deviceProp.maxGridSize[1])
+               .arg(deviceProp.maxGridSize[2]);
+        qDebug() << QString("  Maximum memory pitch:                          %1 bytes\n").arg( deviceProp.memPitch);
+        qDebug() << QString("  Texture alignment:                             %1 bytes\n").arg( deviceProp.textureAlignment);
+        qDebug() << QString("  Concurrent copy and kernel execution:          %1 with %2 copy engine(s)\n").arg( (deviceProp.deviceOverlap ? "Yes" : "No")).arg( deviceProp.asyncEngineCount);
+        qDebug() << QString("  Run time limit on kernels:                     %1\n").arg( deviceProp.kernelExecTimeoutEnabled ? "Yes" : "No");
+        qDebug() << QString("  Integrated GPU sharing Host Memory:            %1\n").arg( deviceProp.integrated ? "Yes" : "No");
+        qDebug() << QString("  Support host page-locked memory mapping:       %1\n").arg( deviceProp.canMapHostMemory ? "Yes" : "No");
+        qDebug() << QString("  Alignment requirement for Surfaces:            %1\n").arg( deviceProp.surfaceAlignment ? "Yes" : "No");
+        qDebug() << QString("  Device has ECC support:                        %1\n").arg( deviceProp.ECCEnabled ? "Enabled" : "Disabled");
+#if defined(WIN32) || defined(_WIN32) || defined(WIN64) || defined(_WIN64)
+        qDebug() << QString("  CUDA Device Driver Mode (TCC or WDDM):         %1\n").arg( deviceProp.tccDriver ? "TCC (Tesla Compute Cluster Driver)" : "WDDM (Windows Display Driver Model)");
+#endif
+        qDebug() << QString("  Device supports Unified Addressing (UVA):      %1\n").arg( deviceProp.unifiedAddressing ? "Yes" : "No");
+        qDebug() << QString("  Device PCI Bus ID / PCI location ID:           %1 / %2\n").arg( deviceProp.pciBusID).arg( deviceProp.pciDeviceID);
+
+        const char *sComputeMode[] =
+        {
+            "Default (multiple host threads can use ::cudaSetDevice() with device simultaneously)",
+            "Exclusive (only one host thread in one process is able to use ::cudaSetDevice() with this device)",
+            "Prohibited (no host thread can use ::cudaSetDevice() with this device)",
+            "Exclusive Process (many threads in one process is able to use ::cudaSetDevice() with this device)",
+            "Unknown",
+            NULL
+        };
+        qDebug() << QString("  Compute Mode:\n");
+        qDebug() << QString("     < %1 >\n").arg( sComputeMode[deviceProp.computeMode]);
+    }
+
+
+    // csv masterlog info
+    // *****************************
+    // exe and CUDA driver name
+    qDebug() << QString("\n");
+    std::string sProfileString = "deviceQuery, CUDA Driver = CUDART";
+    char cTemp[16];
+
+    // driver version
+    sProfileString += ", CUDA Driver Version = ";
+#if defined(_MSC_VER)
+    sprintf_s(cTemp, 10, "%d.%d", driverVersion/1000, (driverVersion%100)/10);
+#else
+    sprintf(cTemp, "%d.%d", driverVersion/1000, (driverVersion%100)/10);
+#endif
+    sProfileString +=  cTemp;
+
+    // Runtime version
+    sProfileString += ", CUDA Runtime Version = ";
+#if defined(_MSC_VER)
+    sprintf_s(cTemp, 10, "%d.%d", runtimeVersion/1000, (runtimeVersion%100)/10);
+#else
+    sprintf(cTemp, "%d.%d", runtimeVersion/1000, (runtimeVersion%100)/10);
+#endif
+    sProfileString +=  cTemp;
+
+    // Device count
+    sProfileString += ", NumDevs = ";
+#if defined(_MSC_VER)
+    sprintf_s(cTemp, 10, "%d", deviceCount);
+#else
+    sprintf(cTemp, "%d", deviceCount);
+#endif
+    sProfileString += cTemp;
+
+    // Print Out all device Names
+    for (dev = 0; dev < deviceCount; ++dev)
+    {
+#if defined(_MSC_VER)
+        sprintf_s(cTemp, 13, ", Device%d = ", dev);
+#else
+        sprintf(cTemp, ", Device%d = ", dev);
+#endif
+        cudaDeviceProp deviceProp;
+        cudaGetDeviceProperties(&deviceProp, dev);
+        sProfileString += cTemp;
+        sProfileString += deviceProp.name;
+    }
+
+    sProfileString += "\n";
+//    printf("%s", sProfileString.c_str());
+    qDebug() << QString("%1").arg(sProfileString.c_str());
+
+    qDebug() << QString("Result = PASS\n");
+
+    // finish
+    // cudaDeviceReset causes the driver to clean up all state. While
+    // not mandatory in normal operation, it is good practice.  It is also
+    // needed to ensure correct operation when the application is being
+    // profiled. Calling cudaDeviceReset causes all profile data to be
+    // flushed before the application exits
+    cudaDeviceReset();
+
+    qDebug() << QString("\n\n");
+#endif
+}
+
+
+#ifdef USE_CUDA
+/**
+ * @brief BezierWidget3x3::setCudaParam
+ */
+void SafeMain::setCudaParam()
+{
+    //    int m_iUsize = drawParams->getUsize();
+    //    int m_iVsize = drawParams->getVsize();
+    qDebug() << QString("VRtogetherWidget::setCudaParam         Start  ,,,,,,,,,,,,,,,,,,,,,,,,,, ");
+    CUresult error;
+    // Initialize CUDA Driver API
+    error = cuInit(0);
+    if (error != CUDA_SUCCESS) { qDebug() << QString("Error al inicializar el CUDA \r\n"); exit(0); }
+
+    setUseCUDA(true);
+    // Get number of devices supporting CUDA
+    int deviceCount = 0;
+    error = cuDeviceGetCount(&deviceCount);
+    if (error != CUDA_SUCCESS) { qDebug() << QString("Error al inicializar el CUDA \r\n"); exit(0); }
+    if (deviceCount == 0) {
+        qDebug() << QString("There is no device supporting CUDA.\r\n");
+        exit(0);
+    }
+    error = cuDeviceGet(&cuDevice, 0);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error to get the first device CUDA.\r\n");
+        exit(0);
+    }
+    // Create context
+    error = cuGLCtxCreate(&cuContext, 0, cuDevice);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error al crear contexto CUDA %1  error=%2 \r\n").arg(cuDevice).arg(error);
+        error = cuCtxDetach(cuContext);
+        cuCtxDestroy(cuContext);
+        exit(0);
+    }
+    qDebug() << QString("VRtogetherWidget::setCudaParam  cuContext=%1 cuDevice=%2 ").arg((ulong)cuContext).arg((ulong)cuDevice);
+
+    // CU_FUNC_CACHE_PREFER_NONE CU_FUNC_CACHE_PREFER_SHARED CU_FUNC_CACHE_PREFER_L1 CU_FUNC_CACHE_PREFER_EQUAL
+    error = cuCtxSetCacheConfig(CU_FUNC_CACHE_PREFER_EQUAL);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error to Set Cache Config CUDA %1  error=%2 \r\n").arg(cuDevice).arg(error);
+        error = cuCtxDetach(cuContext);
+        cuCtxDestroy(cuContext);
+        exit(0);
+    }
+    // D:/i2cat_vrtogether/VRtogetherCUDA/vrtg01_cooda.ptx
+#ifdef Q_OS_WIN
+    error = cuModuleLoad(&cuModule, "D:/i2cat_vrtogether/VRtogetherCUDA/vrtg01_cooda.ptx");
+#else
+    error = cuModuleLoad(&cuModule, "/home/juanpinto/QT_OpenCL/qt-labs-opencl_matrix3x3/demos/temp/bezierpatch3x3.ptx");
+#endif
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error al leer el archivo PTX  error=%1 \r\n").arg(error);
+        error = cuCtxDetach(cuContext);
+        cuCtxDestroy(cuContext);
+        exit(0);
+    }
+    // _Z7vrtogCUPfPcPif
+    // _Z7vrtogCUPfPcPif
+    error = cuModuleGetFunction(&vrtogCU, cuModule, "_Z7vrtogCUPfPcPif");
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error al cargar funcion vrtogCU   error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        exit(0);
+    }
+    /*
+        sizeCU = 100 * sizeof(int);
+        error= cuMemAlloc(&nothingmemCU, sizeCU);
+        if (error != CUDA_SUCCESS){
+            qDebug() << QString("Error cuMemAlloc nothingmemCU  error=%1 \r\n").arg(error);
+            cuCtxDestroy(cuContext);
+            exit(0);
+        }
+
+    //*/
+    qDebug() << QString("PTX loaded ......................................................... ");
+#ifdef DEBUGVR
+    sizeCU10 = 10000 * sizeof(int);
+    debugmemCUbytes0 = (int *)malloc(sizeCU10);
+    memset(debugmemCUbytes0, 0, sizeCU10);
+    error = cuMemAlloc(&debugmemCU0, sizeCU10);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemAlloc debugmemCU0  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    error = cuMemcpyHtoD(debugmemCU0, reinterpret_cast<const void *>(debugmemCUbytes0), sizeCU10);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemcpyHtoD debugmemCU0  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    sizeCU11 = 10000 * sizeof(int);
+    debugmemCUbytes1 = (int *)malloc(sizeCU11);
+    memset(debugmemCUbytes0, 0, sizeCU10);
+    error = cuMemAlloc(&debugmemCU1, sizeCU11);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemAlloc debugmemCU1  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    error = cuMemcpyHtoD(debugmemCU1, reinterpret_cast<const void *>(debugmemCUbytes1), sizeCU11);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemcpyHtoD debugmemCU1  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    sizeCU12 = 10000 * sizeof(int);
+    debugmemCUbytes2 = (int *)malloc(sizeCU12);
+    memset(debugmemCUbytes2, 0, sizeCU12);
+    error = cuMemAlloc(&debugmemCU2, sizeCU12);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemAlloc debugmemCU2  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    error = cuMemcpyHtoD(debugmemCU2, reinterpret_cast<const void *>(debugmemCUbytes2), sizeCU12);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemcpyHtoD debugmemCU2  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+
+    sizeCU20 = 10000 * sizeof(float);
+    debugmemFloatCUbytes0 = (float *)malloc(sizeCU20);
+    memset(debugmemFloatCUbytes0, 0, sizeCU20);
+    error = cuMemAlloc(&debugmemFloatCU0, sizeCU20);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemAlloc debugmemFloatCU0  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    error = cuMemcpyHtoD(debugmemFloatCU0, reinterpret_cast<const void *>(debugmemFloatCUbytes0), sizeCU20);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemcpyHtoD debugmemFloatCU0  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    sizeCU21 = 10000 * sizeof(float);
+    debugmemFloatCUbytes1 = (float *)malloc(sizeCU21);
+    memset(debugmemFloatCUbytes1, 0, sizeCU21);
+    error = cuMemAlloc(&debugmemFloatCU1, sizeCU21);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemAlloc debugmemFloatCU1  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    error = cuMemcpyHtoD(debugmemFloatCU1, reinterpret_cast<const void *>(debugmemFloatCUbytes1), sizeCU21);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemcpyHtoD debugmemFloatCU1  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    sizeCU22 = 10000 * sizeof(float);
+    debugmemFloatCUbytes2 = (float *)malloc(sizeCU22);
+    memset(debugmemFloatCUbytes2, 0, sizeCU22);
+    error = cuMemAlloc(&debugmemFloatCU2, sizeCU22);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemAlloc debugmemFloatCU2  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    error = cuMemcpyHtoD(debugmemFloatCU2, reinterpret_cast<const void *>(debugmemFloatCUbytes2), sizeCU22);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemcpyHtoD debugmemFloatCU2  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+
+    sizeCU30 = 10000 * sizeof(char);
+    debugmemCharCUbytes0 = (char *)malloc(sizeCU30);
+    memset(debugmemCharCUbytes0, 0, sizeCU30);
+    error = cuMemAlloc(&debugmemCharCU0, sizeCU30);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemAlloc debugmemCharCU0  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    error = cuMemcpyHtoD(debugmemCharCU0, reinterpret_cast<const void *>(debugmemCharCUbytes0), sizeCU30);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemcpyHtoD debugmemCharCU0  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    sizeCU31 = 10000 * sizeof(char);
+    debugmemCharCUbytes1 = (char *)malloc(sizeCU31);
+    memset(debugmemCharCUbytes1, 0, sizeCU31);
+    error = cuMemAlloc(&debugmemCharCU1, sizeCU31);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemAlloc debugmemCharCU1  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    error = cuMemcpyHtoD(debugmemCharCU1, reinterpret_cast<const void *>(debugmemCharCUbytes1), sizeCU31);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemcpyHtoD debugmemCharCU1  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    sizeCU32 = 10000 * sizeof(char);
+    debugmemCharCUbytes2 = (char *)malloc(sizeCU32);
+    memset(debugmemCharCUbytes2, 0, sizeCU32);
+    error = cuMemAlloc(&debugmemCharCU2, sizeCU32);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemAlloc debugmemCharCU2  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    error = cuMemcpyHtoD(debugmemCharCU2, reinterpret_cast<const void *>(debugmemCharCUbytes2), sizeCU32);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemcpyHtoD debugmemCharCU2  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+#endif
+    //*/
+    int n = 0;
+    seedmemCUbytes = (int *)malloc(MAX_X * sizeof(int));
+    for (int j = 0; j < MAX_X; j++)
+    {
+        seedmemCUbytes[n] = rand();
+        n++;
+    }
+    error = cuMemAlloc(&seedmemCU, MAX_X * sizeof(int));
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemAlloc seedmemCU  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    error = cuMemcpyHtoD(seedmemCU, reinterpret_cast<const void *>(seedmemCUbytes), MAX_X * sizeof(int));
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemcpyHtoD seedmemCU  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+
+
+
+	error = cuMemAlloc(&seedmemCU, MAX_X * sizeof(int));
+	if (error != CUDA_SUCCESS) {
+		qDebug() << QString("Error cuMemAlloc seedmemCU  error=%1 \r\n").arg(error);
+		cuCtxDestroy(cuContext);
+		return;
+	}
+	error = cuMemcpyHtoD(seedmemCU, reinterpret_cast<const void *>(seedmemCUbytes), MAX_X * sizeof(int));
+	if (error != CUDA_SUCCESS) {
+		qDebug() << QString("Error cuMemcpyHtoD seedmemCU  error=%1 \r\n").arg(error);
+		cuCtxDestroy(cuContext);
+		return;
+	}
+
+    //*/
+
+    /*
+        int iFrameWidth  = commonParams->getFrameWidth();
+        int iFrameHeight = commonParams->getFrameHeight();
+        bufferSize = iFrameWidth * iFrameHeight * sizeof(uchar3);
+        error= cuMemAlloc(&bufferEffects1cu, bufferSize);
+        if (error != CUDA_SUCCESS){
+            qDebug() << QString("Error cuMemAlloc bufferEffects1cu  error=%1 \r\n").arg(error);
+            cuCtxDestroy(cuContext);
+            return;
+        }
+        error= cuMemAlloc(&bufferEffects2cu, bufferSize);
+        if (error != CUDA_SUCCESS){
+            qDebug() << QString("Error cuMemAlloc bufferEffects1cu  error=%1 \r\n").arg(error);
+            cuCtxDestroy(cuContext);
+            return;
+        }
+    //*/
+    //    setPBOcu();
+    qDebug() << QString("VRtogetherWidget::setCudaParam         End ");
+    qDebug() << QString("deviceCount=%1 \r\n").arg(deviceCount);
+}
+#endif
+
+#ifdef USE_CUDA
+/**
+ * @brief BezierWidget3x3::setCudaParamMulti
+ */
+void SafeMain::setCudaParamMulti()
+{
+    //    int m_iUsize = drawParams->getUsize();
+    //    int m_iVsize = drawParams->getVsize();
+    qDebug() << QString("VRtogetherWidget::setCudaParamMulti         Start  ,,,,,,,,,,,,,,,,,,,,,,,,,, ");
+    CUresult error;
+    // Initialize CUDA Driver API
+    error = cuInit(0);
+    if (error != CUDA_SUCCESS) { qDebug() << QString("Error al inicializar el CUDA \r\n"); exit(0); }
+
+    setUseCUDA(true);
+    // Get number of devices supporting CUDA
+    int deviceCount = 0;
+    error = cuDeviceGetCount(&deviceCount);
+    if (error != CUDA_SUCCESS) { qDebug() << QString("Error al inicializar el CUDA \r\n"); exit(0); }
+    if (deviceCount == 0) {
+        qDebug() << QString("There is no device supporting CUDA.\r\n");
+        exit(0);
+    }
+    error = cuDeviceGet(&cuDevice, 0);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error to get the first device CUDA.\r\n");
+        exit(0);
+    }
+    // Create context
+    error = cuGLCtxCreate(&cuContextMulti, 0, cuDevice);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error al crear contexto CUDA %1  error=%2 \r\n").arg(cuDevice).arg(error);
+        error = cuCtxDetach(cuContextMulti);
+        cuCtxDestroy(cuContextMulti);
+        exit(0);
+    }
+
+    qDebug() << QString("VRtogetherWidget::setCudaParamMulti  cuContextMulti=%1 cuDevice=%2 ").arg((uint)cuContextMulti).arg((uint)cuDevice);
+
+
+    // CU_FUNC_CACHE_PREFER_NONE CU_FUNC_CACHE_PREFER_SHARED CU_FUNC_CACHE_PREFER_L1 CU_FUNC_CACHE_PREFER_EQUAL
+    error = cuCtxSetCacheConfig(CU_FUNC_CACHE_PREFER_EQUAL);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error to Set Cache Config CUDA %1  error=%2 \r\n").arg(cuDevice).arg(error);
+        error = cuCtxDetach(cuContextMulti);
+        cuCtxDestroy(cuContextMulti);
+        exit(0);
+    }
+    // D:/i2cat_vrtogether/VRtogetherCUDA/vrtg01_cooda.ptx
+#ifdef Q_OS_WIN
+    error = cuModuleLoad(&cuModule, "D:/i2cat_vrtogether/v30_stable_qt5/getSUB/vrtg01_cooda.ptx");
+#else
+    error = cuModuleLoad(&cuModule, "/home/juanpinto/QT_OpenCL/qt-labs-opencl_matrix3x3/demos/temp/bezierpatch3x3.ptx");
+#endif
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error al leer el archivo PTX  error=%1 \r\n").arg(error);
+        error = cuCtxDetach(cuContextMulti);
+        cuCtxDestroy(cuContextMulti);
+        exit(0);
+    }
+
+    error = cuModuleGetFunction(&vrtogCU01, cuModule, "_Z9vrtogCU01PfPcPifjj");
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error al cargar funcion vrtogCU01   error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContextMulti);
+        exit(0);
+    }
+    error = cuModuleGetFunction(&vrtogCU02, cuModule, "_Z9vrtogCU02PfPcPifjj");
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error al cargar funcion vrtogCU02   error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContextMulti);
+        exit(0);
+    }
+    error = cuModuleGetFunction(&vrtogCU03, cuModule, "_Z9vrtogCU03PfPcPifjj");
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error al cargar funcion vrtogCU03   error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContextMulti);
+        exit(0);
+    }
+    error = cuModuleGetFunction(&vrtogCU04, cuModule, "_Z9vrtogCU04PfPcPifjj");
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error al cargar funcion vrtogCU04   error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContextMulti);
+        exit(0);
+    }
+
+
+    //*/
+    qDebug() << QString("PTX loaded ......................................................... ");
+#ifdef DEBUGVR
+    sizeCU10 = 10000 * sizeof(int);
+    debugmemCUbytes0 = (int *)malloc(sizeCU10);
+    memset(debugmemCUbytes0, 0, sizeCU10);
+    error = cuMemAlloc(&debugmemCU0, sizeCU10);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemAlloc debugmemCU0  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    error = cuMemcpyHtoD(debugmemCU0, reinterpret_cast<const void *>(debugmemCUbytes0), sizeCU10);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemcpyHtoD debugmemCU0  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    sizeCU11 = 10000 * sizeof(int);
+    debugmemCUbytes1 = (int *)malloc(sizeCU11);
+    memset(debugmemCUbytes0, 0, sizeCU10);
+    error = cuMemAlloc(&debugmemCU1, sizeCU11);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemAlloc debugmemCU1  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    error = cuMemcpyHtoD(debugmemCU1, reinterpret_cast<const void *>(debugmemCUbytes1), sizeCU11);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemcpyHtoD debugmemCU1  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    sizeCU12 = 10000 * sizeof(int);
+    debugmemCUbytes2 = (int *)malloc(sizeCU12);
+    memset(debugmemCUbytes2, 0, sizeCU12);
+    error = cuMemAlloc(&debugmemCU2, sizeCU12);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemAlloc debugmemCU2  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    error = cuMemcpyHtoD(debugmemCU2, reinterpret_cast<const void *>(debugmemCUbytes2), sizeCU12);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemcpyHtoD debugmemCU2  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+
+    sizeCU20 = 10000 * sizeof(float);
+    debugmemFloatCUbytes0 = (float *)malloc(sizeCU20);
+    memset(debugmemFloatCUbytes0, 0, sizeCU20);
+    error = cuMemAlloc(&debugmemFloatCU0, sizeCU20);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemAlloc debugmemFloatCU0  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    error = cuMemcpyHtoD(debugmemFloatCU0, reinterpret_cast<const void *>(debugmemFloatCUbytes0), sizeCU20);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemcpyHtoD debugmemFloatCU0  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    sizeCU21 = 10000 * sizeof(float);
+    debugmemFloatCUbytes1 = (float *)malloc(sizeCU21);
+    memset(debugmemFloatCUbytes1, 0, sizeCU21);
+    error = cuMemAlloc(&debugmemFloatCU1, sizeCU21);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemAlloc debugmemFloatCU1  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    error = cuMemcpyHtoD(debugmemFloatCU1, reinterpret_cast<const void *>(debugmemFloatCUbytes1), sizeCU21);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemcpyHtoD debugmemFloatCU1  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    sizeCU22 = 10000 * sizeof(float);
+    debugmemFloatCUbytes2 = (float *)malloc(sizeCU22);
+    memset(debugmemFloatCUbytes2, 0, sizeCU22);
+    error = cuMemAlloc(&debugmemFloatCU2, sizeCU22);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemAlloc debugmemFloatCU2  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    error = cuMemcpyHtoD(debugmemFloatCU2, reinterpret_cast<const void *>(debugmemFloatCUbytes2), sizeCU22);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemcpyHtoD debugmemFloatCU2  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+
+    sizeCU30 = 10000 * sizeof(char);
+    debugmemCharCUbytes0 = (char *)malloc(sizeCU30);
+    memset(debugmemCharCUbytes0, 0, sizeCU30);
+    error = cuMemAlloc(&debugmemCharCU0, sizeCU30);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemAlloc debugmemCharCU0  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    error = cuMemcpyHtoD(debugmemCharCU0, reinterpret_cast<const void *>(debugmemCharCUbytes0), sizeCU30);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemcpyHtoD debugmemCharCU0  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    sizeCU31 = 10000 * sizeof(char);
+    debugmemCharCUbytes1 = (char *)malloc(sizeCU31);
+    memset(debugmemCharCUbytes1, 0, sizeCU31);
+    error = cuMemAlloc(&debugmemCharCU1, sizeCU31);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemAlloc debugmemCharCU1  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    error = cuMemcpyHtoD(debugmemCharCU1, reinterpret_cast<const void *>(debugmemCharCUbytes1), sizeCU31);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemcpyHtoD debugmemCharCU1  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    sizeCU32 = 10000 * sizeof(char);
+    debugmemCharCUbytes2 = (char *)malloc(sizeCU32);
+    memset(debugmemCharCUbytes2, 0, sizeCU32);
+    error = cuMemAlloc(&debugmemCharCU2, sizeCU32);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemAlloc debugmemCharCU2  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    error = cuMemcpyHtoD(debugmemCharCU2, reinterpret_cast<const void *>(debugmemCharCUbytes2), sizeCU32);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemcpyHtoD debugmemCharCU2  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+#endif
+    //*/
+    int n = 0;
+    seedmemCUbytes = (int *)malloc(MAX_X * sizeof(int));
+    for (int j = 0; j < MAX_X; j++)
+    {
+        seedmemCUbytes[n] = rand();
+        n++;
+    }
+    error = cuMemAlloc(&seedmemCU, MAX_X * sizeof(int));
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemAlloc seedmemCU  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContextMulti);
+        return;
+    }
+    error = cuMemcpyHtoD(seedmemCU, reinterpret_cast<const void *>(seedmemCUbytes), MAX_X * sizeof(int));
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemcpyHtoD seedmemCU  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContextMulti);
+        return;
+    }
+    //*/
+
+    /*
+        int iFrameWidth  = commonParams->getFrameWidth();
+        int iFrameHeight = commonParams->getFrameHeight();
+        bufferSize = iFrameWidth * iFrameHeight * sizeof(uchar3);
+        error= cuMemAlloc(&bufferEffects1cu, bufferSize);
+        if (error != CUDA_SUCCESS){
+            qDebug() << QString("Error cuMemAlloc bufferEffects1cu  error=%1 \r\n").arg(error);
+            cuCtxDestroy(cuContext);
+            return;
+        }
+        error= cuMemAlloc(&bufferEffects2cu, bufferSize);
+        if (error != CUDA_SUCCESS){
+            qDebug() << QString("Error cuMemAlloc bufferEffects1cu  error=%1 \r\n").arg(error);
+            cuCtxDestroy(cuContext);
+            return;
+        }
+    //*/
+    //    setPBOcu();
+    qDebug() << QString("VRtogetherWidget::setCudaParamMulti         End ");
+    qDebug() << QString("deviceCount=%1 \r\n").arg(deviceCount);
+}
+#endif
+
+
+void SafeMain::setVerticesCUDA()
+{
+#ifdef USE_CUDA
+    int n = 0;
+    bool useCUDA = getUseCUDA();
+
+    if (useCUDA == true) {
+                qDebug() << QString("VRtogetherWidget::setVerticesCUDA ............... incMov=%1 ").arg(incMov);
+        gmr = cuGraphicsMapResources(1, &positionCUDABuffer, 0);
+        gmr = cuGraphicsMapResources(1, &posColorCUDABuffer, 0);
+
+        cuGraphicsResourceGetMappedPointer(&pDevPtr[0], &num_bytes[0], positionCUDABuffer);
+        cuGraphicsResourceGetMappedPointer(&pDevPtr[1], &num_bytes[1], posColorCUDABuffer);
+		cuGraphicsResourceGetMappedPointer(&pDevPtr[2], &num_bytes[2], indicesCUDABuffer);
+
+        uint argTestSize;
+        void *argsTest[64];
+        memset(argsTest, 0, sizeof(argsTest));
+
+        argsTest[n] = &pDevPtr[0];       n++;
+        argsTest[n] = &pDevPtr[1];       n++;
+		argsTest[n] = &pDevPtr[2];       n++;
+		argsTest[n] = &seedmemCU;        n++;
+        argsTest[n] = &incMov;           n++;
+#ifdef DEBUGVR
+        argsTest[n] = &debugmemCU0;       n++;
+        argsTest[n] = &debugmemCU1;       n++;
+        argsTest[n] = &debugmemCU2;       n++;
+        argsTest[n] = &debugmemFloatCU0;  n++;
+        argsTest[n] = &debugmemFloatCU1;  n++;
+        argsTest[n] = &debugmemFloatCU2;  n++;
+        argsTest[n] = &debugmemCharCU0;   n++;
+        argsTest[n] = &debugmemCharCU1;   n++;
+        argsTest[n] = &debugmemCharCU2;   n++;
+#endif
+        argTestSize = sizeof(argsTest);
+        //		void *config[] = {
+        //			CU_LAUNCH_PARAM_BUFFER_POINTER, argsTest,
+        //			CU_LAUNCH_PARAM_BUFFER_SIZE,    &argTestSize,
+        //			CU_LAUNCH_PARAM_END
+        //		};
+
+
+        int iValXocl = MAX_X;
+        int iValYocl = MAX_Y;
+        unsigned int blqY = iValYocl / block_size;
+        unsigned int blqX = iValXocl / block_size;
+        if (((int)blqX * block_size) < iValXocl)blqX++;
+        if (((int)blqY * block_size) < iValYocl)blqY++;
+        gmr = cuLaunchKernel(vrtogCU, blqX, blqY, 1,
+            block_size, block_size, 1,
+            0, NULL, argsTest, NULL);
+        if (gmr != CUDA_SUCCESS) { qDebug() << QString("setVerticesCUDA Error cuLaunchKernel=%1").arg(gmr); }
+        cuGraphicsUnmapResources(1, &positionCUDABuffer, 0);
+        cuGraphicsUnmapResources(1, &posColorCUDABuffer, 0);
+		cuGraphicsUnmapResources(1, &indicesCUDABuffer, 0);
+        //        theGLMessage.stopCUDA();
+
+#ifdef DEBUGVR
+        // copy result from device to host
+        gmr = cuMemcpyDtoH((int *)debugmemCUbytes0, debugmemCU0, sizeCU10);
+        if (gmr != CUDA_SUCCESS) {
+            qDebug() << QString("setVerticesCUDA  Error10 cuMemcpyDtoH=%1").arg(gmr);
+        }
+        gmr = cuMemcpyDtoH((int *)debugmemCUbytes1, debugmemCU1, sizeCU10);
+        if (gmr != CUDA_SUCCESS) {
+            qDebug() << QString("setVerticesCUDA  Error11 cuMemcpyDtoH=%1").arg(gmr);
+        }
+        gmr = cuMemcpyDtoH((int *)debugmemCUbytes2, debugmemCU2, sizeCU10);
+        if (gmr != CUDA_SUCCESS)
+        {
+            qDebug() << QString("setVerticesCUDA  Error12 cuMemcpyDtoH=%1").arg(gmr);
+        }
+
+        gmr = cuMemcpyDtoH((float *)debugmemFloatCUbytes0, debugmemFloatCU0, sizeCU20);
+        if (gmr != CUDA_SUCCESS) {
+            qDebug() << QString("setVerticesCUDA  Error20 cuMemcpyDtoH=%1").arg(gmr);
+        }
+        gmr = cuMemcpyDtoH((float *)debugmemFloatCUbytes1, debugmemFloatCU1, sizeCU21);
+        if (gmr != CUDA_SUCCESS) {
+            qDebug() << QString("setVerticesCUDA  Error21 cuMemcpyDtoH=%1").arg(gmr);
+        }
+        gmr = cuMemcpyDtoH((float *)debugmemFloatCUbytes2, debugmemFloatCU2, sizeCU22);
+        if (gmr != CUDA_SUCCESS) {
+            qDebug() << QString("setVerticesCUDA  Error22 cuMemcpyDtoH=%1").arg(gmr);
+        }
+
+
+        gmr = cuMemcpyDtoH((int *)debugmemCharCUbytes0, debugmemCharCU0, sizeCU30);
+        if (gmr != CUDA_SUCCESS) {
+            qDebug() << QString("setVerticesCUDA  Error30 cuMemcpyDtoH=%1").arg(gmr);
+        }
+        gmr = cuMemcpyDtoH((int *)debugmemCharCUbytes1, debugmemCharCU1, sizeCU31);
+        if (gmr != CUDA_SUCCESS) {
+            qDebug() << QString("setVerticesCUDA  Error31 cuMemcpyDtoH=%1").arg(gmr);
+        }
+        gmr = cuMemcpyDtoH((int *)debugmemCharCUbytes2, debugmemCharCU2, sizeCU32);
+        if (gmr != CUDA_SUCCESS) {
+            qDebug() << QString("setVerticesCUDA  Error32 cuMemcpyDtoH=%1").arg(gmr);
+        }
+#endif
+
+        //        for (int i = 1024; i < 1024+16; i++) {
+        //            qDebug() << QString("i=%1 val=%2 %3 %4 ").arg(i)
+        //                        .arg(debugmemCUbytes0[i]).arg(debugmemCUbytes1[i]).arg(debugmemCUbytes2[i]);
+        //        }
+        //        qDebug("\n");
+
+        //                for (int i = 0; i < 32; i++) {
+        //                    qDebug() << QString("i=%1 val=%2 %3 %4 float=%5 %6 %7 ").arg(i)
+        //                                .arg(debugmemCUbytes0[i]).arg(debugmemCUbytes1[i]).arg(debugmemCUbytes2[i])
+        //                                .arg(debugmemFloatCUbytes0[i]).arg(debugmemFloatCUbytes1[i]).arg(debugmemFloatCUbytes2[i]);
+        //                }
+        //                qDebug("\n");
+
+        //        for (int i = 0; i < 32; i++) {
+        //            qDebug() << QString("i=%1 val=%2 %3 %4 float=%5 %6 %7 char=%8 %9 %10").arg(i)
+        //                        .arg(debugmemCUbytes0[i]).arg(debugmemCUbytes1[i]).arg(debugmemCUbytes2[i])
+        //                        .arg(debugmemFloatCUbytes0[i]).arg(debugmemFloatCUbytes1[i]).arg(debugmemFloatCUbytes2[i])
+        //                        .arg((uchar)debugmemCharCUbytes0[i]).arg((uchar)debugmemCharCUbytes1[i]).arg((uchar)debugmemCharCUbytes2[i]);
+        //        }
+        //        qDebug("\n");
+    }
+#endif
+}
+
+void SafeMain::freeVerticesCUDA()
+{
+    qDebug("Deallocating Memory........................");
+
+#ifdef USE_CUDA
+    qDebug("Freeing CUDA  buffers ");
+    cuGraphicsUnregisterResource(positionCUDABuffer);
+    cuGraphicsUnregisterResource(posColorCUDABuffer);
+	cuGraphicsUnregisterResource(indicesCUDABuffer);
+#endif
+
+    m_iNumVertices = 0;
+    qDebug("Deallocated Memory........................");
+}
+
+void SafeMain::setVerticesCUDAMulti()
+{
+#ifdef USE_CUDA
+    int n = 0;
+    ulong ulPosStart = 0;
+    ulong ulColStart = 0;
+    bool useCUDA = getUseCUDA();
+
+    if (useCUDA == true) {
+        qDebug() << QString("VRtogetherWidget::setVerticesCUDAMulti ............... incMov=%1 ").arg(incMov);
+        gmr = cuGraphicsMapResources(1, &positionCUDABuffer, 0);
+        gmr = cuGraphicsMapResources(1, &posColorCUDABuffer, 0);
+		gmr = cuGraphicsMapResources(1, &indicesCUDABuffer, 0);
+
+        cuGraphicsResourceGetMappedPointer(&pDevPtr[0], &num_bytes[0], positionCUDABuffer);
+        cuGraphicsResourceGetMappedPointer(&pDevPtr[1], &num_bytes[1], posColorCUDABuffer);
+		cuGraphicsResourceGetMappedPointer(&pDevPtr[2], &num_bytes[2], indicesCUDABuffer);
+
+
+		QGLBuffer *vertexBuffer = ViewerVertexBuffer1->getVertexBuffer();
+		QGLBuffer *colorBuffer = ViewerVertexBuffer1->getColorBuffer();
+		QGLBuffer *indexBuffer = ViewerVertexBuffer1->getIndexBuffer();
+		if (vertexBuffer) {
+			vertexBuffer->bind();
+			glVertexPointer(3, GL_FLOAT, 0, 0);
+			QVector3D *mappedV = (QVector3D *)vertexBuffer->map(QGLBuffer::WriteOnly);
+			if (mappedV) {
+				for (int q = 0; q < 32; q++)//iNumIndices; q++)
+				{
+					//  if((q%3) == 0)qDebug(" \n");
+				  //    if((q % 4) == 0)qDebug() << " \n";
+					qDebug() << QString("GLVertexBuffers::bindVertexBuffer    q=%0 vertex=%1 %2 %3 ").arg(q).arg(mappedV[q].x()).arg(mappedV[q].y()).arg(mappedV[q].z());
+				}
+			}
+			vertexBuffer->unmap();
+			vertexBuffer->release();
+		}
+		pDevPtr[0][0];
+
+
+        uint argTestSize;
+        void *argsTest[64];
+        memset(argsTest, 0, sizeof(argsTest));
+
+        argsTest[n] = &pDevPtr[0];       n++;
+        argsTest[n] = &pDevPtr[1];       n++;
+		argsTest[n] = &pDevPtr[2];		 n++;
+        argsTest[n] = &seedmemCU;        n++;
+        argsTest[n] = &incMov;           n++;
+        argsTest[n] = &ulPosStart;           n++;
+        argsTest[n] = &ulColStart;           n++;
+#ifdef DEBUGVR
+        argsTest[n] = &debugmemCU0;       n++;
+        argsTest[n] = &debugmemCU1;       n++;
+        argsTest[n] = &debugmemCU2;       n++;
+        argsTest[n] = &debugmemFloatCU0;  n++;
+        argsTest[n] = &debugmemFloatCU1;  n++;
+        argsTest[n] = &debugmemFloatCU2;  n++;
+        argsTest[n] = &debugmemCharCU0;   n++;
+        argsTest[n] = &debugmemCharCU1;   n++;
+        argsTest[n] = &debugmemCharCU2;   n++;
+#endif
+        argTestSize = sizeof(argsTest);
+        //		void *config[] = {
+        //			CU_LAUNCH_PARAM_BUFFER_POINTER, argsTest,
+        //			CU_LAUNCH_PARAM_BUFFER_SIZE,    &argTestSize,
+        //			CU_LAUNCH_PARAM_END
+        //		};
+
+//		glTranslatef(200, -100, 0);
+
+        int iValXocl = MAX_X;
+        int iValYocl = MAX_Y / 4;
+        unsigned int blqY = iValYocl / block_size;
+        unsigned int blqX = iValXocl / block_size;
+        if (((int)blqX * block_size) < iValXocl)blqX++;
+        if (((int)blqY * block_size) < iValYocl)blqY++;
+        qDebug() << QString("setVerticesCUDAMulti  1  iValYocl=%1 iValXocl=%2 blqY=%3 bkqX=%4 block_size=%5 ulPosStart=%6 ulColStart=%7 ")
+            .arg(iValYocl).arg(iValXocl).arg(blqY).arg(blqX).arg(block_size).arg(ulPosStart).arg(ulColStart);
+        if (!iAvatar || iAvatar == 1) {
+            gmr = cuLaunchKernel(vrtogCU01, blqX, blqY, 1,
+                block_size, block_size, 1,
+                0, NULL, argsTest, NULL);
+            if (gmr != CUDA_SUCCESS) { qDebug() << QString("setVerticesCUDAMulti  1  Error cuLaunchKernel=%1").arg(gmr); }
+        }
+
+
+        ulPosStart = iValYocl * iValXocl;
+        ulColStart = ulPosStart;
+        n = 0;
+        memset(argsTest, 0, sizeof(argsTest));
+
+        argsTest[n] = &pDevPtr[0];      n++;
+        argsTest[n] = &pDevPtr[1];      n++;
+		argsTest[n] = &pDevPtr[2];		n++;
+        argsTest[n] = &seedmemCU;       n++;
+        argsTest[n] = &incMov;          n++;
+        argsTest[n] = &ulPosStart;      n++;
+        argsTest[n] = &ulColStart;      n++;
+#ifdef DEBUGVR
+        argsTest[n] = &debugmemCU0;       n++;
+        argsTest[n] = &debugmemCU1;       n++;
+        argsTest[n] = &debugmemCU2;       n++;
+        argsTest[n] = &debugmemFloatCU0;  n++;
+        argsTest[n] = &debugmemFloatCU1;  n++;
+        argsTest[n] = &debugmemFloatCU2;  n++;
+        argsTest[n] = &debugmemCharCU0;   n++;
+        argsTest[n] = &debugmemCharCU1;   n++;
+        argsTest[n] = &debugmemCharCU2;   n++;
+#endif
+        argTestSize = sizeof(argsTest);
+
+        iValXocl = MAX_X;
+        iValYocl = MAX_Y / 4;
+        blqY = iValYocl / block_size;
+        blqX = iValXocl / block_size;
+        if (((int)blqX * block_size) < iValXocl)blqX++;
+        if (((int)blqY * block_size) < iValYocl)blqY++;
+        qDebug() << QString("setVerticesCUDAMulti  2  iValYocl=%1 iValXocl=%2 blqY=%3 bkqX=%4 block_size=%5 ulPosStart=%6 ulColStart=%7 ")
+            .arg(iValYocl).arg(iValXocl).arg(blqY).arg(blqX).arg(block_size).arg(ulPosStart).arg(ulColStart);
+        if (!iAvatar || iAvatar == 2) {
+            gmr = cuLaunchKernel(vrtogCU02, blqX, blqY, 1,
+                block_size, block_size, 1,
+                0, NULL, argsTest, NULL);
+            if (gmr != CUDA_SUCCESS) { qDebug() << QString("setVerticesCUDAMulti  2  Error cuLaunchKernel=%1").arg(gmr); }
+        }
+
+
+
+        ulPosStart = (iValYocl * iValXocl) * 2;
+        ulColStart = ulPosStart;
+        n = 0;
+        memset(argsTest, 0, sizeof(argsTest));
+
+        argsTest[n] = &pDevPtr[0];       n++;
+        argsTest[n] = &pDevPtr[1];       n++;
+		argsTest[n] = &pDevPtr[2];       n++;
+        argsTest[n] = &seedmemCU;        n++;
+        argsTest[n] = &incMov;           n++;
+        argsTest[n] = &ulPosStart;           n++;
+        argsTest[n] = &ulColStart;           n++;
+#ifdef DEBUGVR
+        argsTest[n] = &debugmemCU0;       n++;
+        argsTest[n] = &debugmemCU1;       n++;
+        argsTest[n] = &debugmemCU2;       n++;
+        argsTest[n] = &debugmemFloatCU0;  n++;
+        argsTest[n] = &debugmemFloatCU1;  n++;
+        argsTest[n] = &debugmemFloatCU2;  n++;
+        argsTest[n] = &debugmemCharCU0;   n++;
+        argsTest[n] = &debugmemCharCU1;   n++;
+        argsTest[n] = &debugmemCharCU2;   n++;
+#endif
+        argTestSize = sizeof(argsTest);
+
+        iValXocl = MAX_X;
+        iValYocl = MAX_Y / 4;
+        blqY = iValYocl / block_size;
+        blqX = iValXocl / block_size;
+        if (((int)blqX * block_size) < iValXocl)blqX++;
+        if (((int)blqY * block_size) < iValYocl)blqY++;
+        qDebug() << QString("setVerticesCUDAMulti  3  iValYocl=%1 iValXocl=%2 blqY=%3 bkqX=%4 block_size=%5 ulPosStart=%6 ulColStart=%7 ")
+            .arg(iValYocl).arg(iValXocl).arg(blqY).arg(blqX).arg(block_size).arg(ulPosStart).arg(ulColStart);
+        if (!iAvatar || iAvatar == 3) {
+            gmr = cuLaunchKernel(vrtogCU03, blqX, blqY, 1,
+                block_size, block_size, 1,
+                0, NULL, argsTest, NULL);
+            if (gmr != CUDA_SUCCESS) { qDebug() << QString("setVerticesCUDAMulti  3  Error cuLaunchKernel=%1").arg(gmr); }
+        }
+
+
+
+        ulPosStart = (iValYocl * iValXocl) * 3;
+        ulColStart = ulPosStart;
+        n = 0;
+        memset(argsTest, 0, sizeof(argsTest));
+
+        argsTest[n] = &pDevPtr[0];       n++;
+        argsTest[n] = &pDevPtr[1];       n++;
+		argsTest[n] = &pDevPtr[2];       n++;
+		argsTest[n] = &seedmemCU;        n++;
+        argsTest[n] = &incMov;           n++;
+        argsTest[n] = &ulPosStart;           n++;
+        argsTest[n] = &ulColStart;           n++;
+#ifdef DEBUGVR
+        argsTest[n] = &debugmemCU0;       n++;
+        argsTest[n] = &debugmemCU1;       n++;
+        argsTest[n] = &debugmemCU2;       n++;
+        argsTest[n] = &debugmemFloatCU0;  n++;
+        argsTest[n] = &debugmemFloatCU1;  n++;
+        argsTest[n] = &debugmemFloatCU2;  n++;
+        argsTest[n] = &debugmemCharCU0;   n++;
+        argsTest[n] = &debugmemCharCU1;   n++;
+        argsTest[n] = &debugmemCharCU2;   n++;
+#endif
+        argTestSize = sizeof(argsTest);
+
+//		glTranslatef(-200, 100, 0);
+
+
+        iValXocl = MAX_X;
+        iValYocl = MAX_Y / 4;
+        blqY = iValYocl / block_size;
+        blqX = iValXocl / block_size;
+        if (((int)blqX * block_size) < iValXocl)blqX++;
+        if (((int)blqY * block_size) < iValYocl)blqY++;
+        qDebug() << QString("setVerticesCUDAMulti  4  iValYocl=%1 iValXocl=%2 blqY=%3 bkqX=%4 block_size=%5 ulPosStart=%6 ulColStart=%7 ")
+            .arg(iValYocl).arg(iValXocl).arg(blqY).arg(blqX).arg(block_size).arg(ulPosStart).arg(ulColStart);
+        if (!iAvatar || iAvatar == 4) {
+            gmr = cuLaunchKernel(vrtogCU04, blqX, blqY, 1,
+                block_size, block_size, 1,
+                0, NULL, argsTest, NULL);
+            if (gmr != CUDA_SUCCESS) { qDebug() << QString("setVerticesCUDAMulti  4  Error cuLaunchKernel=%1").arg(gmr); }
+        }
+
+
+
+//*/
+//*****************************************************************************************************************************
+
+        cuGraphicsUnmapResources(1, &positionCUDABuffer, 0);
+        cuGraphicsUnmapResources(1, &posColorCUDABuffer, 0);
+		cuGraphicsUnmapResources(1, &indicesCUDABuffer, 0);
+
+        //        theGLMessage.stopCUDA();
+
+#ifdef DEBUGVR
+        // copy result from device to host
+        gmr = cuMemcpyDtoH((int *)debugmemCUbytes0, debugmemCU0, sizeCU10);
+        if (gmr != CUDA_SUCCESS) {
+            qDebug() << QString("setVerticesCUDA  Error10 cuMemcpyDtoH=%1").arg(gmr);
+        }
+        gmr = cuMemcpyDtoH((int *)debugmemCUbytes1, debugmemCU1, sizeCU10);
+        if (gmr != CUDA_SUCCESS) {
+            qDebug() << QString("setVerticesCUDA  Error11 cuMemcpyDtoH=%1").arg(gmr);
+        }
+        gmr = cuMemcpyDtoH((int *)debugmemCUbytes2, debugmemCU2, sizeCU10);
+        if (gmr != CUDA_SUCCESS)
+        {
+            qDebug() << QString("setVerticesCUDA  Error12 cuMemcpyDtoH=%1").arg(gmr);
+        }
+
+        gmr = cuMemcpyDtoH((float *)debugmemFloatCUbytes0, debugmemFloatCU0, sizeCU20);
+        if (gmr != CUDA_SUCCESS) {
+            qDebug() << QString("setVerticesCUDA  Error20 cuMemcpyDtoH=%1").arg(gmr);
+        }
+        gmr = cuMemcpyDtoH((float *)debugmemFloatCUbytes1, debugmemFloatCU1, sizeCU21);
+        if (gmr != CUDA_SUCCESS) {
+            qDebug() << QString("setVerticesCUDA  Error21 cuMemcpyDtoH=%1").arg(gmr);
+        }
+        gmr = cuMemcpyDtoH((float *)debugmemFloatCUbytes2, debugmemFloatCU2, sizeCU22);
+        if (gmr != CUDA_SUCCESS) {
+            qDebug() << QString("setVerticesCUDA  Error22 cuMemcpyDtoH=%1").arg(gmr);
+        }
+
+
+        gmr = cuMemcpyDtoH((int *)debugmemCharCUbytes0, debugmemCharCU0, sizeCU30);
+        if (gmr != CUDA_SUCCESS) {
+            qDebug() << QString("setVerticesCUDA  Error30 cuMemcpyDtoH=%1").arg(gmr);
+        }
+        gmr = cuMemcpyDtoH((int *)debugmemCharCUbytes1, debugmemCharCU1, sizeCU31);
+        if (gmr != CUDA_SUCCESS) {
+            qDebug() << QString("setVerticesCUDA  Error31 cuMemcpyDtoH=%1").arg(gmr);
+        }
+        gmr = cuMemcpyDtoH((int *)debugmemCharCUbytes2, debugmemCharCU2, sizeCU32);
+        if (gmr != CUDA_SUCCESS) {
+            qDebug() << QString("setVerticesCUDA  Error32 cuMemcpyDtoH=%1").arg(gmr);
+        }
+#endif
+
+        //        for (int i = 1024; i < 1024+16; i++) {
+        //            qDebug() << QString("i=%1 val=%2 %3 %4 ").arg(i)
+        //                        .arg(debugmemCUbytes0[i]).arg(debugmemCUbytes1[i]).arg(debugmemCUbytes2[i]);
+        //        }
+        //        qDebug("\n");
+
+        //                for (int i = 0; i < 32; i++) {
+        //                    qDebug() << QString("i=%1 val=%2 %3 %4 float=%5 %6 %7 ").arg(i)
+        //                                .arg(debugmemCUbytes0[i]).arg(debugmemCUbytes1[i]).arg(debugmemCUbytes2[i])
+        //                                .arg(debugmemFloatCUbytes0[i]).arg(debugmemFloatCUbytes1[i]).arg(debugmemFloatCUbytes2[i]);
+        //                }
+        //                qDebug("\n");
+
+        //        for (int i = 0; i < 32; i++) {
+        //            qDebug() << QString("i=%1 val=%2 %3 %4 float=%5 %6 %7 char=%8 %9 %10").arg(i)
+        //                        .arg(debugmemCUbytes0[i]).arg(debugmemCUbytes1[i]).arg(debugmemCUbytes2[i])
+        //                        .arg(debugmemFloatCUbytes0[i]).arg(debugmemFloatCUbytes1[i]).arg(debugmemFloatCUbytes2[i])
+        //                        .arg((uchar)debugmemCharCUbytes0[i]).arg((uchar)debugmemCharCUbytes1[i]).arg((uchar)debugmemCharCUbytes2[i]);
+        //        }
+        //        qDebug("\n");
+    }
+#endif
+}
+
+void SafeMain::allocVerticesCUDA()
+{
+#ifdef USE_CUDA
+    IndexType *indices = ViewerVertexBuffer1->getIndices();
+
+    int iIndex = 0;
+    for (int i = 0; i < MAX_Y; i++) {
+        for (int j = 0; j < MAX_X; j++) {
+            indices[iIndex] = IndexType(iIndex);
+            iIndex++;
+        }
+    }
+    num_elems = iIndex;
+    m_iNumVertices = iIndex;
+    m_iNumVerticesPerThread = m_iNumVertices / iThreadsNumber;
+    qDebug() << QString("VRtogetherWidget::allocVerticesCUDA ............................... m_iNumVertices=%1  m_iNumVerticesPerThread=%2").arg(m_iNumVertices).arg(m_iNumVerticesPerThread);
+
+    filePos = 0;
+    ViewerVertexBuffer1->writeIndexBuffer(indices, num_elems, false);
+
+
+    qDebug() << QString("VRtogetherWidget::allocVerticesCUDA        Allocating CUDA Buffers...");
+    QGLBuffer *vertexBuffer = ViewerVertexBuffer1->getVertexBuffer();
+    QGLBuffer *colorBuffer = ViewerVertexBuffer1->getColorBuffer();
+	QGLBuffer *indexBuffer = ViewerVertexBuffer1->getIndexBuffer();
+    qDebug() << QString("VRtogetherWidget::allocVerticesCUDA        Setting CUDA interoperability .....");
+    qDebug() << QString("VRtogetherWidget::allocVerticesCUDA        vertexID=%1 colorID=%2 ").arg(vertexBuffer->bufferId()).arg(colorBuffer->bufferId());
+    cuGraphicsGLRegisterBuffer(&positionCUDABuffer, vertexBuffer->bufferId(), CU_GRAPHICS_REGISTER_FLAGS_WRITE_DISCARD);
+    cuGraphicsGLRegisterBuffer(&posColorCUDABuffer, colorBuffer->bufferId(), CU_GRAPHICS_REGISTER_FLAGS_WRITE_DISCARD);
+	cuGraphicsGLRegisterBuffer(&indicesCUDABuffer, indexBuffer->bufferId(), CU_GRAPHICS_REGISTER_FLAGS_WRITE_DISCARD);
+    qDebug() << QString("VRtogetherWidget::allocVerticesCUDA        Finished CUDA interoperability setting .....");
+#endif
+
+    setAllocated(true);
+}
+
+#ifdef USE_CUDA
+/**
+ * @brief BezierWidget3x3::setCudaParamThreads
+ */
+void SafeMain::setCudaParamThreads()
+{
+    //    int m_iUsize = drawParams->getUsize();
+    //    int m_iVsize = drawParams->getVsize();
+    qDebug() << QString("VRtogetherWidget::setCudaParamThreads         Start  ,,,,,,,,,,,,,,,,,,,,,,,,,, ");
+    CUresult error;
+    // Initialize CUDA Driver API
+    error = cuInit(0);
+    if (error != CUDA_SUCCESS) { qDebug() << QString("Error al inicializar el CUDA \r\n"); exit(0); }
+
+    setUseCUDA(true);
+    // Get number of devices supporting CUDA
+    int deviceCount = 0;
+    error = cuDeviceGetCount(&deviceCount);
+    if (error != CUDA_SUCCESS) { qDebug() << QString("Error al inicializar el CUDA \r\n"); exit(0); }
+    if (deviceCount == 0) {
+        qDebug() << QString("There is no device supporting CUDA.\r\n");
+        exit(0);
+    }
+    error = cuDeviceGet(&cuDevice, 0);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error to get the first device CUDA.\r\n");
+        exit(0);
+    }
+
+    // Create context
+    error = cuCtxCreate(&cuContextThread, 0, cuDevice);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error al crear contexto CUDA %1  error=%2 \r\n").arg(cuDevice).arg(error);
+        error = cuCtxDetach(cuContextThread);
+        cuCtxDestroy(cuContextThread);
+        exit(0);
+    }
+    qDebug() << QString("VRtogetherWidget::setCudaParamThreads   cuContext=%1   cuDevice=%2 ").arg((uint)cuContextThread).arg((uint)cuDevice);
+    HGLRC myContext1 = wglGetCurrentContext();
+    qDebug() << QString("VRtogetherWidget::setCudaParamThreads  glContext1=%2   cuDevice=%1 ").arg(cuDevice).arg((qlonglong)myContext1);
+    CUcontext   cuContextT; cuCtxGetCurrent(&cuContextT);
+    qDebug() << QString("VRtogetherWidget::setCudaParamThreads   cuCtxGetCurrent=%1   ").arg((ulong)cuContextT);
+
+    // CU_FUNC_CACHE_PREFER_NONE CU_FUNC_CACHE_PREFER_SHARED CU_FUNC_CACHE_PREFER_L1 CU_FUNC_CACHE_PREFER_EQUAL
+    error = cuCtxSetCacheConfig(CU_FUNC_CACHE_PREFER_EQUAL);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error to Set Cache Config CUDA %1  error=%2 \r\n").arg(cuDevice).arg(error);
+        error = cuCtxDetach(cuContextThread);
+        cuCtxDestroy(cuContextThread);
+        exit(0);
+    }
+    // D:/i2cat_vrtogether/VRtogetherCUDA/vrtg01_cooda.ptx
+#ifdef Q_OS_WIN
+    error = cuModuleLoad(&cuModule, "D:/i2cat_vrtogether/VRtogetherCUDA/vrtg01_cooda.ptx");
+#else
+    error = cuModuleLoad(&cuModule, "/home/juanpinto/QT_OpenCL/qt-labs-opencl_matrix3x3/demos/temp/bezierpatch3x3.ptx");
+#endif
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error al leer el archivo PTX  error=%1 \r\n").arg(error);
+        error = cuCtxDetach(cuContextThread);
+        cuCtxDestroy(cuContextThread);
+        exit(0);
+    }
+    // _Z7vrtogCUPfPcPif
+    // _Z7vrtogCUPfPcPif
+    error = cuModuleGetFunction(&vrtogCU, cuModule, "_Z7vrtogCUPfPcPif");
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error al cargar funcion vrtogCU   error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContextThread);
+        exit(0);
+    }
+    error = cuModuleGetFunction(&vrtogCU01, cuModule, "_Z9vrtogCU01PfPcPifjj");
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error al cargar funcion vrtogCU01   error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContextThread);
+        exit(0);
+    }
+
+    //error = cuMemAlloc(&pDevPtr[0], MAX_X * (MAX_Y / 4) * 3 * sizeof(float));
+    //if (error != CUDA_SUCCESS) {
+    //	qDebug() << QString("Error cuMemAlloc pDevPtr[0]  error=%1 \r\n").arg(error);
+    //	cuCtxDestroy(cuContext);
+    //	return;
+    //}
+
+    /*
+        sizeCU = 100 * sizeof(int);
+        error= cuMemAlloc(&nothingmemCU, sizeCU);
+        if (error != CUDA_SUCCESS){
+            qDebug() << QString("Error cuMemAlloc nothingmemCU  error=%1 \r\n").arg(error);
+            cuCtxDestroy(cuContext);
+            exit(0);
+        }
+
+    //*/
+    qDebug() << QString("PTX loaded ......................................................... ");
+
+
+#ifdef DEBUGVR
+    sizeCU10 = 10000 * sizeof(int);
+    debugmemCUbytes0 = (int *)malloc(sizeCU10);
+    memset(debugmemCUbytes0, 0, sizeCU10);
+    error = cuMemAlloc(&debugmemCU0, sizeCU10);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemAlloc debugmemCU0  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    error = cuMemcpyHtoD(debugmemCU0, reinterpret_cast<const void *>(debugmemCUbytes0), sizeCU10);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemcpyHtoD debugmemCU0  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    sizeCU11 = 10000 * sizeof(int);
+    debugmemCUbytes1 = (int *)malloc(sizeCU11);
+    memset(debugmemCUbytes0, 0, sizeCU10);
+    error = cuMemAlloc(&debugmemCU1, sizeCU11);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemAlloc debugmemCU1  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    error = cuMemcpyHtoD(debugmemCU1, reinterpret_cast<const void *>(debugmemCUbytes1), sizeCU11);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemcpyHtoD debugmemCU1  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    sizeCU12 = 10000 * sizeof(int);
+    debugmemCUbytes2 = (int *)malloc(sizeCU12);
+    memset(debugmemCUbytes2, 0, sizeCU12);
+    error = cuMemAlloc(&debugmemCU2, sizeCU12);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemAlloc debugmemCU2  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    error = cuMemcpyHtoD(debugmemCU2, reinterpret_cast<const void *>(debugmemCUbytes2), sizeCU12);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemcpyHtoD debugmemCU2  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+
+    sizeCU20 = 10000 * sizeof(float);
+    debugmemFloatCUbytes0 = (float *)malloc(sizeCU20);
+    memset(debugmemFloatCUbytes0, 0, sizeCU20);
+    error = cuMemAlloc(&debugmemFloatCU0, sizeCU20);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemAlloc debugmemFloatCU0  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    error = cuMemcpyHtoD(debugmemFloatCU0, reinterpret_cast<const void *>(debugmemFloatCUbytes0), sizeCU20);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemcpyHtoD debugmemFloatCU0  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    sizeCU21 = 10000 * sizeof(float);
+    debugmemFloatCUbytes1 = (float *)malloc(sizeCU21);
+    memset(debugmemFloatCUbytes1, 0, sizeCU21);
+    error = cuMemAlloc(&debugmemFloatCU1, sizeCU21);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemAlloc debugmemFloatCU1  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    error = cuMemcpyHtoD(debugmemFloatCU1, reinterpret_cast<const void *>(debugmemFloatCUbytes1), sizeCU21);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemcpyHtoD debugmemFloatCU1  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    sizeCU22 = 10000 * sizeof(float);
+    debugmemFloatCUbytes2 = (float *)malloc(sizeCU22);
+    memset(debugmemFloatCUbytes2, 0, sizeCU22);
+    error = cuMemAlloc(&debugmemFloatCU2, sizeCU22);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemAlloc debugmemFloatCU2  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    error = cuMemcpyHtoD(debugmemFloatCU2, reinterpret_cast<const void *>(debugmemFloatCUbytes2), sizeCU22);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemcpyHtoD debugmemFloatCU2  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+
+    sizeCU30 = 10000 * sizeof(char);
+    debugmemCharCUbytes0 = (char *)malloc(sizeCU30);
+    memset(debugmemCharCUbytes0, 0, sizeCU30);
+    error = cuMemAlloc(&debugmemCharCU0, sizeCU30);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemAlloc debugmemCharCU0  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    error = cuMemcpyHtoD(debugmemCharCU0, reinterpret_cast<const void *>(debugmemCharCUbytes0), sizeCU30);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemcpyHtoD debugmemCharCU0  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    sizeCU31 = 10000 * sizeof(char);
+    debugmemCharCUbytes1 = (char *)malloc(sizeCU31);
+    memset(debugmemCharCUbytes1, 0, sizeCU31);
+    error = cuMemAlloc(&debugmemCharCU1, sizeCU31);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemAlloc debugmemCharCU1  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    error = cuMemcpyHtoD(debugmemCharCU1, reinterpret_cast<const void *>(debugmemCharCUbytes1), sizeCU31);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemcpyHtoD debugmemCharCU1  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    sizeCU32 = 10000 * sizeof(char);
+    debugmemCharCUbytes2 = (char *)malloc(sizeCU32);
+    memset(debugmemCharCUbytes2, 0, sizeCU32);
+    error = cuMemAlloc(&debugmemCharCU2, sizeCU32);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemAlloc debugmemCharCU2  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+    error = cuMemcpyHtoD(debugmemCharCU2, reinterpret_cast<const void *>(debugmemCharCUbytes2), sizeCU32);
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemcpyHtoD debugmemCharCU2  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContext);
+        return;
+    }
+#endif
+    //*/
+    int n = 0;
+    seedmemCUbytes = (int *)malloc(MAX_X * sizeof(int));
+    for (int j = 0; j < MAX_X; j++)
+    {
+        seedmemCUbytes[n] = rand();
+        n++;
+    }
+    error = cuMemAlloc(&seedmemCU, MAX_X * sizeof(int));
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemAlloc seedmemCU  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContextThread);
+        return;
+    }
+    error = cuMemcpyHtoD(seedmemCU, reinterpret_cast<const void *>(seedmemCUbytes), MAX_X * sizeof(int));
+    if (error != CUDA_SUCCESS) {
+        qDebug() << QString("Error cuMemcpyHtoD seedmemCU  error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContextThread);
+        return;
+    }
+    //*/
+
+    // Here we must release the CUDA context from the thread context
+    error = cuCtxPopCurrent(NULL);
+
+    if (CUDA_SUCCESS != error)
+    {
+        qDebug() << QString("cuCtxPopCurrent failed   error=%1 \r\n").arg(error);
+        cuCtxDestroy(cuContextThread);
+        exit(0);
+    }
+
+    qDebug() << QString("VRtogetherWidget::setCudaParamThreads         End ");
+    qDebug() << QString("deviceCount=%1 \r\n").arg(deviceCount);
+
+}
+#endif
+
+void SafeMain::setVerticesCUDAThreads(uint uThID)
+{
+    Q_UNUSED(uThID);
+#ifdef USE_CUDAaaa
+    int n = 0;
+    ulong ulPosStart = 0;
+    ulong ulColStart = 0;
+    bool useCUDA = getUseCUDA();
+
+    if (useCUDA == true) {
+        gmr = cuCtxPushCurrent(cuContext);
+        if (gmr != CUDA_SUCCESS) { qDebug() << QString("setVerticesCUDAThreads Error cuCtxPushCurrent=%1").arg(gmr); }
+
+        qDebug() << QString("VRtogetherWidget::setVerticesCUDAThreads ............... incMov=%1 ").arg(incMov);
+        gmr = cuGraphicsMapResources(1, &positionCUDABufferTh[uThID], 0);
+        gmr = cuGraphicsMapResources(1, &posColorCUDABufferTh[uThID], 0);
+
+        cuGraphicsResourceGetMappedPointer(&pDevPtr[0], &num_bytes[0], positionCUDABufferTh[uThID]);
+        cuGraphicsResourceGetMappedPointer(&pDevPtr[1], &num_bytes[1], posColorCUDABufferTh[uThID]);
+
+        uint argTestSize;
+        void *argsTest[64];
+        memset(argsTest, 0, sizeof(argsTest));
+
+        argsTest[n] = &pDevPtr[0];       n++;
+        argsTest[n] = &pDevPtr[1];       n++;
+        argsTest[n] = &seedmemCU;        n++;
+        argsTest[n] = &incMov;           n++;
+        argsTest[n] = &ulPosStart;           n++;
+        argsTest[n] = &ulColStart;           n++;
+#ifdef DEBUGVR
+        argsTest[n] = &debugmemCU0;       n++;
+        argsTest[n] = &debugmemCU1;       n++;
+        argsTest[n] = &debugmemCU2;       n++;
+        argsTest[n] = &debugmemFloatCU0;  n++;
+        argsTest[n] = &debugmemFloatCU1;  n++;
+        argsTest[n] = &debugmemFloatCU2;  n++;
+        argsTest[n] = &debugmemCharCU0;   n++;
+        argsTest[n] = &debugmemCharCU1;   n++;
+        argsTest[n] = &debugmemCharCU2;   n++;
+#endif
+        argTestSize = sizeof(argsTest);
+        //		void *config[] = {
+        //			CU_LAUNCH_PARAM_BUFFER_POINTER, argsTest,
+        //			CU_LAUNCH_PARAM_BUFFER_SIZE,    &argTestSize,
+        //			CU_LAUNCH_PARAM_END
+        //		};
+
+
+        int iValXocl = MAX_X;
+        int iValYocl = MAX_Y / 4;
+        unsigned int blqY = iValYocl / block_size;
+        unsigned int blqX = iValXocl / block_size;
+        if (((int)blqX * block_size) < iValXocl)blqX++;
+        if (((int)blqY * block_size) < iValYocl)blqY++;
+        gmr = cuLaunchKernel(vrtogCU01, blqX, blqY, 1,
+            block_size, block_size, 1,
+            0, NULL, argsTest, NULL);
+        if (gmr != CUDA_SUCCESS) { qDebug() << QString("                                               VRtogetherWidget::setVerticesCUDAThreads Error cuLaunchKernel=%1  ID=%2").arg(gmr).arg(iBufferIDTh[uThID]); }
+        cuCtxSynchronize();
+
+        cuGraphicsUnmapResources(1, &positionCUDABufferTh[uThID], 0);
+        cuGraphicsUnmapResources(1, &posColorCUDABufferTh[uThID], 0);
+        //        theGLMessage.stopCUDA();
+
+#ifdef DEBUGVR
+        // copy result from device to host
+        gmr = cuMemcpyDtoH((int *)debugmemCUbytes0, debugmemCU0, sizeCU10);
+        if (gmr != CUDA_SUCCESS) {
+            qDebug() << QString("setVerticesCUDA  Error10 cuMemcpyDtoH=%1").arg(gmr);
+        }
+        gmr = cuMemcpyDtoH((int *)debugmemCUbytes1, debugmemCU1, sizeCU10);
+        if (gmr != CUDA_SUCCESS) {
+            qDebug() << QString("setVerticesCUDA  Error11 cuMemcpyDtoH=%1").arg(gmr);
+        }
+        gmr = cuMemcpyDtoH((int *)debugmemCUbytes2, debugmemCU2, sizeCU10);
+        if (gmr != CUDA_SUCCESS)
+        {
+            qDebug() << QString("setVerticesCUDA  Error12 cuMemcpyDtoH=%1").arg(gmr);
+        }
+
+        gmr = cuMemcpyDtoH((float *)debugmemFloatCUbytes0, debugmemFloatCU0, sizeCU20);
+        if (gmr != CUDA_SUCCESS) {
+            qDebug() << QString("setVerticesCUDA  Error20 cuMemcpyDtoH=%1").arg(gmr);
+        }
+        gmr = cuMemcpyDtoH((float *)debugmemFloatCUbytes1, debugmemFloatCU1, sizeCU21);
+        if (gmr != CUDA_SUCCESS) {
+            qDebug() << QString("setVerticesCUDA  Error21 cuMemcpyDtoH=%1").arg(gmr);
+        }
+        gmr = cuMemcpyDtoH((float *)debugmemFloatCUbytes2, debugmemFloatCU2, sizeCU22);
+        if (gmr != CUDA_SUCCESS) {
+            qDebug() << QString("setVerticesCUDA  Error22 cuMemcpyDtoH=%1").arg(gmr);
+        }
+
+
+        gmr = cuMemcpyDtoH((int *)debugmemCharCUbytes0, debugmemCharCU0, sizeCU30);
+        if (gmr != CUDA_SUCCESS) {
+            qDebug() << QString("setVerticesCUDA  Error30 cuMemcpyDtoH=%1").arg(gmr);
+        }
+        gmr = cuMemcpyDtoH((int *)debugmemCharCUbytes1, debugmemCharCU1, sizeCU31);
+        if (gmr != CUDA_SUCCESS) {
+            qDebug() << QString("setVerticesCUDA  Error31 cuMemcpyDtoH=%1").arg(gmr);
+        }
+        gmr = cuMemcpyDtoH((int *)debugmemCharCUbytes2, debugmemCharCU2, sizeCU32);
+        if (gmr != CUDA_SUCCESS) {
+            qDebug() << QString("setVerticesCUDA  Error32 cuMemcpyDtoH=%1").arg(gmr);
+        }
+#endif
+        cuCtxPopCurrent(NULL);
+
+        //        for (int i = 1024; i < 1024+16; i++) {
+        //            qDebug() << QString("i=%1 val=%2 %3 %4 ").arg(i)
+        //                        .arg(debugmemCUbytes0[i]).arg(debugmemCUbytes1[i]).arg(debugmemCUbytes2[i]);
+        //        }
+        //        qDebug("\n");
+
+        //                for (int i = 0; i < 32; i++) {
+        //                    qDebug() << QString("i=%1 val=%2 %3 %4 float=%5 %6 %7 ").arg(i)
+        //                                .arg(debugmemCUbytes0[i]).arg(debugmemCUbytes1[i]).arg(debugmemCUbytes2[i])
+        //                                .arg(debugmemFloatCUbytes0[i]).arg(debugmemFloatCUbytes1[i]).arg(debugmemFloatCUbytes2[i]);
+        //                }
+        //                qDebug("\n");
+
+        //        for (int i = 0; i < 32; i++) {
+        //            qDebug() << QString("i=%1 val=%2 %3 %4 float=%5 %6 %7 char=%8 %9 %10").arg(i)
+        //                        .arg(debugmemCUbytes0[i]).arg(debugmemCUbytes1[i]).arg(debugmemCUbytes2[i])
+        //                        .arg(debugmemFloatCUbytes0[i]).arg(debugmemFloatCUbytes1[i]).arg(debugmemFloatCUbytes2[i])
+        //                        .arg((uchar)debugmemCharCUbytes0[i]).arg((uchar)debugmemCharCUbytes1[i]).arg((uchar)debugmemCharCUbytes2[i]);
+        //        }
+        //        qDebug("\n");
+    }
+#endif
+    if (drawed > 12)exit(0);
+}
+
+void SafeMain::allocVerticesCUDAThreads(uint uThID)
+{
+#ifdef USE_CUDA
+    IndexType *indices = ViewerVertexBufferTh[uThID]->getIndices();
+
+    int iIndex = 0;
+    for (int i = 0; i < MAX_Y / iThreadsNumber; i++) {
+        for (int j = 0; j < MAX_X; j++) {
+            indices[iIndex] = IndexType(iIndex);
+            iIndex++;
+        }
+    }
+    num_elems = iIndex;
+    m_iNumVertices = iIndex;
+    m_iNumVerticesPerThread = m_iNumVertices;// / iThreadsNumber;
+    qDebug() << QString("VRtogetherWidget::allocVerticesCUDAThreads ............................... m_iNumVertices=%1  m_iNumVerticesPerThread=%2").arg(m_iNumVertices).arg(m_iNumVerticesPerThread);
+
+    //	filePos = 0;
+//    ViewerVertexBufferTh[uThID]->writeIndexBuffer(indices, num_elems, filePos, false);
+
+//	for(int i=0; i < iThreadsNumber; i++)
+//	{
+        qDebug() << QString("VRtogetherWidget::allocVerticesCUDAThreads        Allocating CUDA Buffers....... uThID=%1 ").arg(uThID);
+        QGLBuffer *vertexBuffer = ViewerVertexBufferTh[uThID]->getVertexBuffer();
+        QGLBuffer *colorBuffer = ViewerVertexBufferTh[uThID]->getColorBuffer();
+
+        if (vertexBuffer->bind()) {
+            if (vertexBuffer->map(QGLBuffer::WriteOnly)) {
+                qDebug() << QString("VRtogetherWidget::allocVerticesCUDAThreads    vertexBuffer allocated .......................................  size=%1  ID=%2").arg(vertexBuffer->size()).arg(vertexBuffer->bufferId());
+                vertexBuffer->unmap();
+                vertexBuffer->release();
+            }
+        }
+        if (colorBuffer->bind()) {
+            if (colorBuffer->map(QGLBuffer::WriteOnly)) {
+                qDebug() << QString("VRtogetherWidget::allocVerticesCUDAThreads    colorBuffer allocated .......................................  size=%1  ID=%2").arg(colorBuffer->size()).arg(colorBuffer->bufferId());
+                colorBuffer->unmap();
+                colorBuffer->release();
+            }
+        }
+
+        qDebug() << QString("VRtogetherWidget::allocVerticesCUDAThreads        Setting CUDA interoperability .....");
+        qDebug() << QString("VRtogetherWidget::allocVerticesCUDAThreads        vertexID=%1 colorID=%2   ").arg(vertexBuffer->bufferId()).arg(colorBuffer->bufferId());
+        cuGraphicsGLRegisterBuffer(&positionCUDABufferTh[uThID], vertexBuffer->bufferId(), CU_GRAPHICS_REGISTER_FLAGS_WRITE_DISCARD);
+        cuGraphicsGLRegisterBuffer(&posColorCUDABufferTh[uThID], colorBuffer->bufferId(), CU_GRAPHICS_REGISTER_FLAGS_WRITE_DISCARD);
+        qDebug() << QString("VRtogetherWidget::allocVerticesCUDAThreads        Finished CUDA interoperability setting .....");
+//	}
+#endif
+    setAllocated(true);
+}
+
+void SafeMain::freeVerticesCUDAThreads(uint uThID)
+{
+    Q_UNUSED(uThID)
+    qDebug("Deallocating Memory........................");
+
+#ifdef USE_CUDA
+    qDebug("Freeing CUDA  buffers ");
+    cuGraphicsUnregisterResource(positionCUDABuffer);
+    cuGraphicsUnregisterResource(posColorCUDABuffer);
+	cuGraphicsUnregisterResource(indicesCUDABuffer);
+#endif
+
+    m_iNumVertices = 0;
+    qDebug("Deallocated Memory........................");
+}
+
+
+//****************************************************************************
+

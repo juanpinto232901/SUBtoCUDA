@@ -65,6 +65,9 @@
     <TargetName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">getSUB</TargetName>
     <IgnoreImportLibrary Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</IgnoreImportLibrary>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <IncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);..\..\CUDA\inc;</IncludePath>
+  </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
       <AdditionalIncludeDirectories>.\GeneratedFiles\$(ConfigurationName);.\GeneratedFiles;.;sdl\include;cwipc_util\include;cwipc_codec;..\..\..\QT\QT5.12.1\5.12.1\MSVC2017_64\include;..\..\..\QT\QT5.12.1\5.12.1\MSVC2017_64\include\QtOpenGL;..\..\..\QT\QT5.12.1\5.12.1\MSVC2017_64\include\QtWidgets;..\..\..\QT\QT5.12.1\5.12.1\MSVC2017_64\include\QtGui;..\..\..\QT\QT5.12.1\5.12.1\MSVC2017_64\include\QtANGLE;..\..\..\QT\QT5.12.1\5.12.1\MSVC2017_64\include\QtCore;release;C:\VulkanSDK\1.0.51.0\include;..\..\..\QT\QT5.12.1\5.12.1\MSVC2017_64\mkspecs\win32-msvc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
@@ -126,7 +129,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>.\GeneratedFiles\$(ConfigurationName);.\GeneratedFiles;.;sdl\include;cwipc_util\include;cwipc_codec\include;..\..\..\QT\QT5.12.1\5.12.1\MSVC2017_64\include;..\..\..\QT\QT5.12.1\5.12.1\MSVC2017_64\include\QtOpenGL;..\..\..\QT\QT5.12.1\5.12.1\MSVC2017_64\include\QtWidgets;..\..\..\QT\QT5.12.1\5.12.1\MSVC2017_64\include\QtGui;..\..\..\QT\QT5.12.1\5.12.1\MSVC2017_64\include\QtANGLE;..\..\..\QT\QT5.12.1\5.12.1\MSVC2017_64\include\QtCore;debug;C:\VulkanSDK\1.0.51.0\include;..\..\..\QT\QT5.12.1\5.12.1\MSVC2017_64\mkspecs\win32-msvc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>.\GeneratedFiles\$(ConfigurationName);.\GeneratedFiles;.;sdl\include;cwipc_util\include;cwipc_codec\include;..\..\..\QT\QT5.12.1\5.12.1\MSVC2017_64\include;..\..\..\QT\QT5.12.1\5.12.1\MSVC2017_64\include\QtOpenGL;..\..\..\QT\QT5.12.1\5.12.1\MSVC2017_64\include\QtWidgets;..\..\..\QT\QT5.12.1\5.12.1\MSVC2017_64\include\QtGui;..\..\..\QT\QT5.12.1\5.12.1\MSVC2017_64\include\QtANGLE;..\..\..\QT\QT5.12.1\5.12.1\MSVC2017_64\include\QtCore;debug;C:\VulkanSDK\1.0.51.0\include;..\..\..\QT\QT5.12.1\5.12.1\MSVC2017_64\mkspecs\win32-msvc;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v9.1\include;..\..\CUDA\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>-Zc:rvalueCast -Zc:inline -Zc:strictStrings -Zc:throwingNew -w34100 -w34189 -w44996 -w44456 -w44457 -w44458 %(AdditionalOptions)</AdditionalOptions>
       <AssemblerListingLocation>debug\</AssemblerListingLocation>
       <BrowseInformation>false</BrowseInformation>
@@ -135,7 +138,7 @@
       <ExceptionHandling>Sync</ExceptionHandling>
       <ObjectFileName>$(IntDir)</ObjectFileName>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>_WINDOWS;UNICODE;_UNICODE;WIN32;_ENABLE_EXTENDED_ALIGNED_STORAGE;WIN64;QT_DEPRECATED_WARNINGS;USE_CPU;QT_OPENGL_LIB;QT_WIDGETS_LIB;QT_GUI_LIB;QT_CORE_LIB;THREADSUB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_WINDOWS;UNICODE;_UNICODE;WIN32;_ENABLE_EXTENDED_ALIGNED_STORAGE;WIN64;QT_DEPRECATED_WARNINGS;USE_CUDA;QT_OPENGL_LIB;QT_WIDGETS_LIB;QT_GUI_LIB;QT_CORE_LIB;THREADSUB;USE_CUDA_TREADS_ONE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <PreprocessToFile>false</PreprocessToFile>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <SuppressStartupBanner>true</SuppressStartupBanner>
@@ -145,8 +148,8 @@
       <ProgramDataBaseFileName>$(IntDir)vc$(PlatformToolsetVersion).pdb</ProgramDataBaseFileName>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>"C:\Program Files (x86)\Windows Kits\10\lib\10.0.17134.0\um\x64\opengl32.lib";sdl\lib\x64\SDL.lib;cwipc_codec\lib\Debug\cwipc_codec.lib;cwipc_codec\lib\Debug\cloud_codec_v2.lib;cwipc_codec\lib\Debug\pcl_jpeg_io.lib;cwipc_util\lib\Debug\cwipc_util.lib;$(QTDIR)\lib\Qt5OpenGLd.lib;$(QTDIR)\lib\Qt5Widgetsd.lib;$(QTDIR)\lib\Qt5Guid.lib;$(QTDIR)\lib\Qt5Cored.lib;$(QTDIR)\lib\qtmaind.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>$(QTDIR)\lib;sdl\lib\x64;cwipc_codec\lib\Debug;D:\QT\QT5.12.1\5.12.1\MSVC2017_64\lib;cwipc_util\lib\Debug;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>"C:\Program Files (x86)\Windows Kits\10\lib\10.0.17134.0\um\x64\opengl32.lib";"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v9.1\lib\x64\cuda.lib";"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v9.1\lib\x64\cudart.lib";sdl\lib\x64\SDL.lib;cwipc_codec\lib\Debug\cwipc_codec.lib;cwipc_codec\lib\Debug\cloud_codec_v2.lib;cwipc_codec\lib\Debug\pcl_jpeg_io.lib;cwipc_util\lib\Debug\cwipc_util.lib;$(QTDIR)\lib\Qt5OpenGLd.lib;$(QTDIR)\lib\Qt5Widgetsd.lib;$(QTDIR)\lib\Qt5Guid.lib;$(QTDIR)\lib\Qt5Cored.lib;$(QTDIR)\lib\qtmaind.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(QTDIR)\lib;sdl\lib\x64;cwipc_codec\lib\Debug;D:\QT\QT5.12.1\5.12.1\MSVC2017_64\lib;cwipc_util\lib\Debug;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v9.1\lib64;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v9.1\lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalOptions>"/MANIFESTDEPENDENCY:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' publicKeyToken='6595b64144ccf1df' language='*' processorArchitecture='*'" %(AdditionalOptions)</AdditionalOptions>
       <DataExecutionPrevention>true</DataExecutionPrevention>
       <GenerateDebugInformation>true</GenerateDebugInformation>
@@ -173,13 +176,13 @@
     <QtMoc>
       <QTDIR>D:\QT\QT5.12.1\5.12.1\MSVC2017_64</QTDIR>
       <OutputFile>$(Configuration)\moc_%(Filename).cpp</OutputFile>
-      <Define>_WINDOWS;UNICODE;_UNICODE;WIN32;_ENABLE_EXTENDED_ALIGNED_STORAGE;WIN64;QT_DEPRECATED_WARNINGS;USE_CPU;QT_OPENGL_LIB;QT_WIDGETS_LIB;QT_GUI_LIB;QT_CORE_LIB;THREADSUB;%(PreprocessorDefinitions)</Define>
+      <Define>_WINDOWS;UNICODE;_UNICODE;WIN32;_ENABLE_EXTENDED_ALIGNED_STORAGE;WIN64;QT_DEPRECATED_WARNINGS;USE_CUDA;QT_OPENGL_LIB;QT_WIDGETS_LIB;QT_GUI_LIB;QT_CORE_LIB;THREADSUB;USE_CUDA_TREADS_ONE;%(PreprocessorDefinitions)</Define>
       <CompilerFlavor>msvc</CompilerFlavor>
       <Include>./$(Configuration)/moc_predefs.h</Include>
       <ExecutionDescription>Moc'ing %(Identity)...</ExecutionDescription>
       <InputFile>%(FullPath)</InputFile>
       <DynamicSource>output</DynamicSource>
-      <IncludePath>.\GeneratedFiles\$(ConfigurationName);.\GeneratedFiles;.;sdl\include;cwipc_util\include;cwipc_codec\include;..\..\..\QT\QT5.12.1\5.12.1\MSVC2017_64\include;..\..\..\QT\QT5.12.1\5.12.1\MSVC2017_64\include\QtOpenGL;..\..\..\QT\QT5.12.1\5.12.1\MSVC2017_64\include\QtWidgets;..\..\..\QT\QT5.12.1\5.12.1\MSVC2017_64\include\QtGui;..\..\..\QT\QT5.12.1\5.12.1\MSVC2017_64\include\QtANGLE;..\..\..\QT\QT5.12.1\5.12.1\MSVC2017_64\include\QtCore;debug;C:\VulkanSDK\1.0.51.0\include;..\..\..\QT\QT5.12.1\5.12.1\MSVC2017_64\mkspecs\win32-msvc;%(AdditionalIncludeDirectories)</IncludePath>
+      <IncludePath>.\GeneratedFiles\$(ConfigurationName);.\GeneratedFiles;.;sdl\include;cwipc_util\include;cwipc_codec\include;..\..\..\QT\QT5.12.1\5.12.1\MSVC2017_64\include;..\..\..\QT\QT5.12.1\5.12.1\MSVC2017_64\include\QtOpenGL;..\..\..\QT\QT5.12.1\5.12.1\MSVC2017_64\include\QtWidgets;..\..\..\QT\QT5.12.1\5.12.1\MSVC2017_64\include\QtGui;..\..\..\QT\QT5.12.1\5.12.1\MSVC2017_64\include\QtANGLE;..\..\..\QT\QT5.12.1\5.12.1\MSVC2017_64\include\QtCore;debug;C:\VulkanSDK\1.0.51.0\include;..\..\..\QT\QT5.12.1\5.12.1\MSVC2017_64\mkspecs\win32-msvc;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v9.1\include;..\..\CUDA\inc;%(AdditionalIncludeDirectories)</IncludePath>
     </QtMoc>
     <PostBuildEvent>
       <Command>echo "111111111"; echo $(OutDir)</Command>

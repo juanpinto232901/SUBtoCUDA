@@ -458,14 +458,14 @@ void GLVertexBuffers::bindVertexBuffer()
     if (vertexBuffer) {
         vertexBuffer->bind();
         glVertexPointer(3, GL_FLOAT, 0, 0);
-//                    QVector3D *mappedV = (QVector3D *)vertexBuffer->map(QGLBuffer::WriteOnly);
-//                    for(int q=0; q<32; q++)//iNumIndices; q++)
-//                    {
-//                      //  if((q%3) == 0)qDebug(" \n");
-//                    //    if((q % 4) == 0)qDebug() << " \n";
-//                        qDebug() << QString("GLVertexBuffers::bindVertexBuffer    q=%0 vertex=%1 %2 %3 ").arg(q).arg(mappedV[q].x()).arg(mappedV[q].y()).arg(mappedV[q].z());
-//                    }
-//                    vertexBuffer->unmap();
+                    QVector3D *mappedV = (QVector3D *)vertexBuffer->map(QGLBuffer::WriteOnly);
+                    for(int q=0; q<32; q++)//iNumIndices; q++)
+                    {
+                      //  if((q%3) == 0)qDebug(" \n");
+                    //    if((q % 4) == 0)qDebug() << " \n";
+                        qDebug() << QString("GLVertexBuffers::bindVertexBuffer    q=%0 vertex=%1 %2 %3 ").arg(q).arg(mappedV[q].x()).arg(mappedV[q].y()).arg(mappedV[q].z());
+                    }
+                    vertexBuffer->unmap();
         vertexBuffer->release();
     }
 }
@@ -477,13 +477,13 @@ void GLVertexBuffers::bindColorBuffer()
         glColorPointer(4, GL_BYTE, 0, 0);
 //		glColorPointer(3, GL_BYTE, 0, 0);
 
-                    //QVector3Du *mappedV = (QVector3Du *)colorBuffer->map(QGLBuffer::WriteOnly);
-                    //for(int q=0; q<32; q++)
-                    //{
-                    ////    if((q % 4) == 0)qDebug() << " \n";
-                    //    qDebug() << QString("GLVertexBuffers::bindColorBuffer    q=%0 color=%1 %2 %3").arg(q).arg(mappedV[q].x()).arg(mappedV[q].y()).arg(mappedV[q].z());
-                    //}
-                    //colorBuffer->unmap();
+                    QVector3Du *mappedV = (QVector3Du *)colorBuffer->map(QGLBuffer::WriteOnly);
+                    for(int q=0; q<32; q++)
+                    {
+                    //    if((q % 4) == 0)qDebug() << " \n";
+                        qDebug() << QString("GLVertexBuffers::bindColorBuffer    q=%0 color=%1 %2 %3").arg(q).arg(mappedV[q].x()).arg(mappedV[q].y()).arg(mappedV[q].z());
+                    }
+                    colorBuffer->unmap();
         colorBuffer->release();
     }
 }
@@ -502,7 +502,7 @@ void GLVertexBuffers::bindIndexBuffer(int iNumIndices, bool bText, bool bNor, bo
 
         if(bCol)glEnableClientState(GL_COLOR_ARRAY);
         indexBuffer->bind();
-/*                                IndexType *mappedV1 = (IndexType *)indexBuffer->map(QGLBuffer::WriteOnly);
+                                IndexType *mappedV1 = (IndexType *)indexBuffer->map(QGLBuffer::WriteOnly);
                                 vertexBuffer->bind();
                                 QVector3D *mappedV2 = (QVector3D *)vertexBuffer->map(QGLBuffer::WriteOnly);
                                 for(int q=0; q<32; q++)//iNumIndices; q++)
@@ -519,7 +519,7 @@ void GLVertexBuffers::bindIndexBuffer(int iNumIndices, bool bText, bool bNor, bo
                                 vertexBuffer->release();
                                 indexBuffer->unmap();
 
-
+/*
                                 mappedV1 = (IndexType *)indexBuffer->map(QGLBuffer::WriteOnly);
                                 colorBuffer->bind();
                                 QVector4Du *mappedV3 = (QVector4Du *)colorBuffer->map(QGLBuffer::WriteOnly);

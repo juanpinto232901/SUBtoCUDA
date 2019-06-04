@@ -16,6 +16,15 @@
 //#include "framerate.h"
 #include "CapturSUB.h"
 
+#ifdef USE_CUDA
+    #include <cuda_gl_interop.h>
+    #include <cuda.h>
+    #include <cudaGL.h>
+    #include <cuda_runtime.h>
+    #include <../../CUDA/inc/helper_cuda.h>
+    #include <../../CUDA/inc/helper_math.h>
+#endif
+
 #define AVERAGE 100
 #define BUFFERMEM 100 * 1024
 #define NUMVERTICES 1
@@ -95,9 +104,11 @@ signals:
     void zRotationChanged(int angle);
 
 protected:
-    void initializeGL();
 	void processGeomTh(float depX, float despY, float despZ);
 	void processGeom(float depX, float despY, float despZ);
+	void processGeomCUDA(float despX, float despY, float despZ);
+
+    void initializeGL();
 	void paintGL();
     void resizeGL(int width, int height);
     void mousePressEvent(QMouseEvent *event) override;
@@ -130,6 +141,7 @@ private:
 		static constexpr float one = ((float)1);
 		return (a * (one - interp)) + (b * interp);
 	}
+    void cudaInfo();
 
 
 
@@ -189,10 +201,14 @@ private:
     CUdeviceptr pDevPtr[8];
     size_t  num_bytes[8];
     CUresult gmr;
+    //float incMov;
     CUdeviceptr seedmemCU;
     int* seedmemCUbytes;
     ulong ulPosStart;
     ulong ulColStart;
+
+	CUdeviceptr Avatar1memCU;
+	int* Avatar1memCUbytes;
 
     int block_size;
     CUresult error;
@@ -200,6 +216,9 @@ private:
     int deviceCount;
     CUdevice	cuDevice;
     CUcontext   cuContext;
+    CUcontext   cuContextMulti;
+    CUcontext   cuContextThread;
+
     CUmodule    cuModule;
     CUfunction  calculateNurbsUVcu;
     CUfunction  calculateNurbs1cu;
